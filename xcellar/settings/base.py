@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     'apps.users',
     'apps.couriers',
     'apps.automation',
+    'apps.verification',
 ]
 
 MIDDLEWARE = [
@@ -175,6 +176,16 @@ N8N_API_URL = os.environ.get('N8N_API_URL', 'http://n8n:5678')
 N8N_WEBHOOK_SECRET = os.environ.get('N8N_WEBHOOK_SECRET', '')
 N8N_API_KEY = os.environ.get('N8N_API_KEY', '')
 
+# Phone Verification Settings (Twilio)
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', '')
+TWILIO_VERIFY_SERVICE_SID = os.environ.get('TWILIO_VERIFY_SERVICE_SID', '')
+TWILIO_WHATSAPP_NUMBER = os.environ.get('TWILIO_WHATSAPP_NUMBER', '')
+OTP_EXPIRY_MINUTES = int(os.environ.get('OTP_EXPIRY_MINUTES', 5))
+OTP_MAX_ATTEMPTS = int(os.environ.get('OTP_MAX_ATTEMPTS', 3))
+OTP_RATE_LIMIT_PER_HOUR = int(os.environ.get('OTP_RATE_LIMIT_PER_HOUR', 3))
+OTP_COOLDOWN_SECONDS = int(os.environ.get('OTP_COOLDOWN_SECONDS', 60))
+
 # drf-spectacular Settings
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Xcellar API',
@@ -203,6 +214,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Users', 'description': 'Regular customer endpoints'},
         {'name': 'Couriers', 'description': 'Courier/driver endpoints'},
         {'name': 'Automation', 'description': 'n8n workflow automation endpoints'},
+        {'name': 'Verification', 'description': 'Phone number verification endpoints'},
     ],
     'SWAGGER_UI_SETTINGS': {
         'deepLinking': True,

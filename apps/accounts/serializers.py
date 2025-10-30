@@ -30,13 +30,9 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         min_length=8,
         help_text='Confirm password - must match password'
     )
-    first_name = serializers.CharField(
+    full_name = serializers.CharField(
         write_only=True,
-        help_text='User first name'
-    )
-    last_name = serializers.CharField(
-        write_only=True,
-        help_text='User last name'
+        help_text='User full name'
     )
     email = serializers.EmailField(
         help_text='User email address (must be unique)'
@@ -47,7 +43,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['email', 'phone_number', 'password', 'password_confirm', 'first_name', 'last_name']
+        fields = ['email', 'phone_number', 'password', 'password_confirm', 'full_name']
 
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
@@ -56,8 +52,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data.pop('password_confirm')
-        first_name = validated_data.pop('first_name')
-        last_name = validated_data.pop('last_name')
+        full_name = validated_data.pop('full_name')
         password = validated_data.pop('password')
         
         user = User.objects.create_user(
@@ -67,8 +62,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         )
         UserProfile.objects.create(
             user=user,
-            first_name=first_name,
-            last_name=last_name
+            full_name=full_name
         )
         return user
 
@@ -85,13 +79,9 @@ class CourierRegistrationSerializer(serializers.ModelSerializer):
         min_length=8,
         help_text='Confirm password - must match password'
     )
-    first_name = serializers.CharField(
+    full_name = serializers.CharField(
         write_only=True,
-        help_text='Courier first name'
-    )
-    last_name = serializers.CharField(
-        write_only=True,
-        help_text='Courier last name'
+        help_text='Courier full name'
     )
     email = serializers.EmailField(
         help_text='Courier email address (must be unique)'
@@ -102,7 +92,7 @@ class CourierRegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['email', 'phone_number', 'password', 'password_confirm', 'first_name', 'last_name']
+        fields = ['email', 'phone_number', 'password', 'password_confirm', 'full_name']
 
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
@@ -111,8 +101,7 @@ class CourierRegistrationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data.pop('password_confirm')
-        first_name = validated_data.pop('first_name')
-        last_name = validated_data.pop('last_name')
+        full_name = validated_data.pop('full_name')
         password = validated_data.pop('password')
         
         user = User.objects.create_user(
@@ -122,32 +111,24 @@ class CourierRegistrationSerializer(serializers.ModelSerializer):
         )
         CourierProfile.objects.create(
             user=user,
-            first_name=first_name,
-            last_name=last_name
+            full_name=full_name
         )
         return user
 
 
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for user details"""
-    profile = serializers.SerializerMethodField()
+    full_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'phone_number', 'user_type', 'date_joined', 'profile']
+        fields = ['id', 'email', 'phone_number', 'user_type', 'date_joined', 'full_name']
         read_only_fields = ['id', 'date_joined']
 
-    def get_profile(self, obj):
+    def get_full_name(self, obj):
         if obj.user_type == 'USER' and hasattr(obj, 'user_profile'):
-            return {
-                'first_name': obj.user_profile.first_name,
-                'last_name': obj.user_profile.last_name,
-            }
+            return obj.user_profile.full_name
         elif obj.user_type == 'COURIER' and hasattr(obj, 'courier_profile'):
-            return {
-                'first_name': obj.courier_profile.first_name,
-                'last_name': obj.courier_profile.last_name,
-                'is_available': obj.courier_profile.is_available,
-            }
+            return obj.courier_profile.full_name
         return None
 

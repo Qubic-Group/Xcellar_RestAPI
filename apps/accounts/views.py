@@ -136,10 +136,7 @@ class CustomTokenRefreshView(TokenRefreshView):
                         'phone_number': '+1234567890',
                         'user_type': 'USER',
                         'date_joined': '2025-10-30T18:00:00Z',
-                        'profile': {
-                            'first_name': 'John',
-                            'last_name': 'Doe',
-                        }
+                        'full_name': 'John Doe',
                     }
                 }
             }
@@ -155,8 +152,7 @@ class CustomTokenRefreshView(TokenRefreshView):
                 'phone_number': '+1234567890',
                 'password': 'password123',
                 'password_confirm': 'password123',
-                'first_name': 'John',
-                'last_name': 'Doe',
+                'full_name': 'John Doe',
             },
             request_only=True,
         ),
@@ -200,11 +196,7 @@ def register_user(request):
                         'phone_number': '+1234567891',
                         'user_type': 'COURIER',
                         'date_joined': '2025-10-30T18:00:00Z',
-                        'profile': {
-                            'first_name': 'Jane',
-                            'last_name': 'Driver',
-                            'is_available': False,
-                        }
+                        'full_name': 'Jane Driver',
                     }
                 }
             }
@@ -220,8 +212,7 @@ def register_user(request):
                 'phone_number': '+1234567891',
                 'password': 'password123',
                 'password_confirm': 'password123',
-                'first_name': 'Jane',
-                'last_name': 'Driver',
+                'full_name': 'Jane Driver',
             },
             request_only=True,
         ),
@@ -266,10 +257,7 @@ def register_courier(request):
                 'phone_number': '+1234567890',
                 'user_type': 'USER',
                 'date_joined': '2025-10-30T18:00:00Z',
-                'profile': {
-                    'first_name': 'John',
-                    'last_name': 'Doe',
-                }
+                'full_name': 'John Doe',
             },
             response_only=True,
         ),
@@ -281,11 +269,7 @@ def register_courier(request):
                 'phone_number': '+1234567891',
                 'user_type': 'COURIER',
                 'date_joined': '2025-10-30T18:00:00Z',
-                'profile': {
-                    'first_name': 'Jane',
-                    'last_name': 'Driver',
-                    'is_available': False,
-                }
+                'full_name': 'Jane Driver',
             },
             response_only=True,
         ),

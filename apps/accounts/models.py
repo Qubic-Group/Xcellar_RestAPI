@@ -69,16 +69,16 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def get_full_name(self):
         if self.user_type == 'USER' and hasattr(self, 'user_profile'):
-            return f"{self.user_profile.first_name} {self.user_profile.last_name}"
+            return self.user_profile.full_name
         elif self.user_type == 'COURIER' and hasattr(self, 'courier_profile'):
-            return f"{self.courier_profile.first_name} {self.courier_profile.last_name}"
+            return self.courier_profile.full_name
         return self.email
 
     def get_short_name(self):
         if self.user_type == 'USER' and hasattr(self, 'user_profile'):
-            return self.user_profile.first_name
+            return self.user_profile.full_name.split()[0] if self.user_profile.full_name else self.email
         elif self.user_type == 'COURIER' and hasattr(self, 'courier_profile'):
-            return self.courier_profile.first_name
+            return self.courier_profile.full_name.split()[0] if self.courier_profile.full_name else self.email
         return self.email
 
 
@@ -91,8 +91,7 @@ class UserProfile(AbstractBaseModel):
         on_delete=models.CASCADE,
         related_name='user_profile'
     )
-    first_name = models.CharField(max_length=100)
-    last_name = models.CharField(max_length=100)
+    full_name = models.CharField(max_length=200, default='')
     # Add more customer-specific fields as needed
 
     class Meta:
@@ -101,7 +100,7 @@ class UserProfile(AbstractBaseModel):
         verbose_name_plural = 'User Profiles'
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name} - {self.user.email}"
+        return f"{self.full_name} - {self.user.email}"
 
 
 class CourierProfile(AbstractBaseModel):
@@ -113,8 +112,7 @@ class CourierProfile(AbstractBaseModel):
         on_delete=models.CASCADE,
         related_name='courier_profile'
     )
-    first_name = models.CharField(max_length=100)
-    last_name = models.CharField(max_length=100)
+    full_name = models.CharField(max_length=200, default='')
     license_number = models.CharField(max_length=50, blank=True, null=True)
     vehicle_type = models.CharField(max_length=50, blank=True, null=True)
     vehicle_registration = models.CharField(max_length=50, blank=True, null=True)
@@ -128,5 +126,5 @@ class CourierProfile(AbstractBaseModel):
         verbose_name_plural = 'Courier Profiles'
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name} - {self.user.email}"
+        return f"{self.full_name} - {self.user.email}"
 

@@ -17,13 +17,13 @@ class UserAdmin(BaseUserAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'first_name', 'last_name', 'is_active']
-    search_fields = ['first_name', 'last_name', 'user__email']
+    list_display = ['user', 'full_name', 'is_active']
+    search_fields = ['full_name', 'user__email']
 
 
 @admin.register(CourierProfile)
 class CourierProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'first_name', 'last_name', 'is_available', 'is_active']
-    search_fields = ['first_name', 'last_name', 'user__email']
+    list_display = ['user', 'full_name', 'is_available', 'is_active']
+    search_fields = ['full_name', 'user__email']
     list_filter = ['is_available', 'is_active']
 
