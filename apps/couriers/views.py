@@ -278,8 +278,19 @@ def driver_license(request):
         license_obj = courier_profile.driver_license
         serializer = DriverLicenseSerializer(license_obj, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
-    except DriverLicense.DoesNotExist:
-        # License not created yet, return empty response
+    except AttributeError:
+        # License not created yet (OneToOne relationship doesn't exist)
+        # Django raises RelatedObjectDoesNotExist which is a subclass of AttributeError
+        return Response(
+            {
+                'message': 'Driver license not registered yet. Use PUT/PATCH to create.',
+                'license': None
+            },
+            status=status.HTTP_200_OK
+        )
+    except Exception as e:
+        # Fallback exception handling
+        logger.error(f"Error retrieving driver license for courier {request.user.email}: {e}")
         return Response(
             {
                 'message': 'Driver license not registered yet. Use PUT/PATCH to create.',
@@ -351,8 +362,9 @@ def update_driver_license(request):
             partial=request.method == 'PATCH',
             context={'request': request}
         )
-    except DriverLicense.DoesNotExist:
-        # License doesn't exist, create new one
+    except AttributeError:
+        # License doesn't exist, create new one (OneToOne relationship doesn't exist)
+        # Django raises RelatedObjectDoesNotExist which is a subclass of AttributeError
         is_create = True
         serializer = DriverLicenseSerializer(
             data=request.data,
@@ -364,7 +376,7 @@ def update_driver_license(request):
     
     try:
         with transaction.atomic():
-            # Handle file deletions if replacing
+            # Handle file deletions if replacing (save old file references before saving)
             old_front_page = None
             old_back_page = None
             
@@ -375,7 +387,7 @@ def update_driver_license(request):
             # Save license, automatically assign to courier_profile
             license_obj = serializer.save(courier_profile=courier_profile)
             
-            # Delete old files if new ones were uploaded
+            # Delete old files if new ones were uploaded (after saving new files)
             if 'front_page' in serializer.validated_data and old_front_page:
                 old_front_page.delete(save=False)
             if 'back_page' in serializer.validated_data and old_back_page:
