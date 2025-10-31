@@ -19,6 +19,9 @@ urlpatterns = [
     path('api/v1/automation/', include('apps.automation.urls')),
     path('api/v1/verification/', include('apps.verification.urls')),
     
+    # Password reset web pages
+    path('reset-password/', include('apps.accounts.password_reset.urls')),
+    
     # API Documentation
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),

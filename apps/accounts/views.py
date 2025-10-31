@@ -3,17 +3,24 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from django.db import transaction
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
+import logging
 
 from .serializers import (
     UserRegistrationSerializer,
     CourierRegistrationSerializer,
     CustomTokenObtainPairSerializer,
-    UserSerializer
+    UserSerializer,
+    PasswordChangeSerializer,
+    PhoneNumberUpdateSerializer,
+    ProfileUpdateSerializer
 )
+
+logger = logging.getLogger(__name__)
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
@@ -241,6 +248,71 @@ def register_courier(request):
 
 @extend_schema(
     tags=['Authentication'],
+    summary='Change Password',
+    description='Change password for authenticated users/couriers. Requires JWT authentication. No need to provide current password.',
+    request=PasswordChangeSerializer,
+    responses={
+        200: {
+            'description': 'Password changed successfully',
+            'examples': {
+                'application/json': {
+                    'message': 'Password changed successfully',
+                }
+            }
+        },
+        400: {'description': 'Validation error - passwords don\'t match or invalid'},
+        401: {'description': 'Authentication required - provide valid JWT token'},
+        429: {'description': 'Rate limit exceeded'},
+    },
+    examples=[
+        OpenApiExample(
+            'Change Password Request',
+            value={
+                'new_password': 'newpassword123',
+                'confirm_new_password': 'newpassword123',
+            },
+            request_only=True,
+        ),
+    ],
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='5/h', method='POST')
+def change_password(request):
+    """
+    Change password for authenticated user.
+    POST /api/v1/auth/password/change/
+    """
+    serializer = PasswordChangeSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    new_password = serializer.validated_data['new_password']
+    
+    try:
+        with transaction.atomic():
+            user = request.user
+            user.set_password(new_password)
+            user.save()
+            
+        logger.info(f"Password changed successfully for user {user.email}")
+        
+        return Response(
+            {
+                'message': 'Password changed successfully',
+            },
+            status=status.HTTP_200_OK
+        )
+    except Exception as e:
+        logger.error(f"Failed to change password for user {request.user.email}: {e}")
+        return Response(
+            {'error': 'Failed to change password. Please try again.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@extend_schema(
+    tags=['Authentication'],
     summary='Get User Profile',
     description='Retrieve the authenticated user\'s profile information. Requires JWT authentication.',
     responses={
@@ -275,6 +347,48 @@ def register_courier(request):
         ),
     ],
 )
+@extend_schema(
+    tags=['Authentication'],
+    summary='Get User Profile',
+    description='Retrieve the authenticated user\'s profile information. Requires JWT authentication.',
+    responses={
+        200: UserSerializer,
+        401: {'description': 'Authentication required - provide valid JWT token'},
+        429: {'description': 'Rate limit exceeded (100 requests per hour)'},
+    },
+    examples=[
+        OpenApiExample(
+            'User Profile Response (Regular User)',
+            value={
+                'id': 1,
+                'email': 'user@example.com',
+                'phone_number': '+1234567890',
+                'user_type': 'USER',
+                'date_joined': '2025-10-30T18:00:00Z',
+                'full_name': 'John Doe',
+                'address': '123 Main St, City, Country',
+                'profile_image': '/media/profiles/user/profile_1.jpg',
+                'profile_image_url': 'http://localhost:8000/media/profiles/user/profile_1.jpg',
+            },
+            response_only=True,
+        ),
+        OpenApiExample(
+            'Courier Profile Response',
+            value={
+                'id': 2,
+                'email': 'courier@example.com',
+                'phone_number': '+1234567891',
+                'user_type': 'COURIER',
+                'date_joined': '2025-10-30T18:00:00Z',
+                'full_name': 'Jane Driver',
+                'address': '456 Oak Ave, City, Country',
+                'profile_image': '/media/profiles/courier/profile_2.jpg',
+                'profile_image_url': 'http://localhost:8000/media/profiles/courier/profile_2.jpg',
+            },
+            response_only=True,
+        ),
+    ],
+)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 @ratelimit(key='user', rate='100/h', method='GET')
@@ -283,6 +397,188 @@ def user_profile(request):
     Get current user profile.
     GET /api/v1/auth/profile/
     """
-    serializer = UserSerializer(request.user)
+    serializer = UserSerializer(request.user, context={'request': request})
     return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=['Authentication'],
+    summary='Update Phone Number',
+    description='Update phone number for authenticated users/couriers. Requires JWT authentication. Phone number must be unique and in international format.',
+    request=PhoneNumberUpdateSerializer,
+    responses={
+        200: {
+            'description': 'Phone number updated successfully',
+            'examples': {
+                'application/json': {
+                    'message': 'Phone number updated successfully',
+                    'phone_number': '+1234567890',
+                }
+            }
+        },
+        400: {'description': 'Validation error - phone number already in use or invalid format'},
+        401: {'description': 'Authentication required - provide valid JWT token'},
+        429: {'description': 'Rate limit exceeded'},
+    },
+    examples=[
+        OpenApiExample(
+            'Update Phone Number Request',
+            value={
+                'phone_number': '+1234567890',
+            },
+            request_only=True,
+        ),
+        OpenApiExample(
+            'Update Phone Number Response',
+            value={
+                'message': 'Phone number updated successfully',
+                'phone_number': '+1234567890',
+            },
+            response_only=True,
+        ),
+    ],
+)
+@api_view(['PUT', 'PATCH'])
+@permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='5/h', method=['PUT', 'PATCH'])
+def update_phone_number(request):
+    """
+    Update phone number for authenticated user.
+    PUT/PATCH /api/v1/auth/phone/update/
+    """
+    serializer = PhoneNumberUpdateSerializer(
+        data=request.data,
+        context={'request': request}
+    )
+    
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    new_phone_number = serializer.validated_data['phone_number']
+    
+    try:
+        with transaction.atomic():
+            user = request.user
+            old_phone_number = user.phone_number
+            user.phone_number = new_phone_number
+            user.save(update_fields=['phone_number'])
+            
+        logger.info(f"Phone number updated for user {user.email}: {old_phone_number} -> {new_phone_number}")
+        
+        return Response(
+            {
+                'message': 'Phone number updated successfully',
+                'phone_number': new_phone_number,
+            },
+            status=status.HTTP_200_OK
+        )
+    except Exception as e:
+        logger.error(f"Failed to update phone number for user {request.user.email}: {e}")
+        return Response(
+            {'error': 'Failed to update phone number. Please try again.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@extend_schema(
+    tags=['Authentication'],
+    summary='Update Profile',
+    description='Update profile information (address and profile image) for authenticated users/couriers. Requires JWT authentication. Supports file uploads.',
+    request=ProfileUpdateSerializer,
+    responses={
+        200: {
+            'description': 'Profile updated successfully',
+            'examples': {
+                'application/json': {
+                    'message': 'Profile updated successfully',
+                    'address': '123 Main St, City, Country',
+                    'profile_image_url': 'http://localhost:8000/media/profiles/user/profile_1.jpg',
+                }
+            }
+        },
+        400: {'description': 'Validation error - invalid image format or size'},
+        401: {'description': 'Authentication required - provide valid JWT token'},
+        429: {'description': 'Rate limit exceeded'},
+    },
+    examples=[
+        OpenApiExample(
+            'Update Profile Request (with image)',
+            value={
+                'address': '123 Main St, City, Country',
+                'profile_image': '<file>',
+            },
+            request_only=True,
+        ),
+        OpenApiExample(
+            'Update Profile Request (address only)',
+            value={
+                'address': '123 Main St, City, Country',
+            },
+            request_only=True,
+        ),
+    ],
+)
+@api_view(['PUT', 'PATCH'])
+@permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='10/h', method=['PUT', 'PATCH'])
+def update_profile(request):
+    """
+    Update profile (address and profile image) for authenticated user.
+    PUT/PATCH /api/v1/auth/profile/update/
+    """
+    serializer = ProfileUpdateSerializer(
+        data=request.data,
+        context={'request': request}
+    )
+    
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    user = request.user
+    
+    try:
+        with transaction.atomic():
+            # Get the appropriate profile
+            if user.user_type == 'USER':
+                profile = user.user_profile
+            elif user.user_type == 'COURIER':
+                profile = user.courier_profile
+            else:
+                return Response(
+                    {'error': 'Invalid user type.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Update address if provided
+            if 'address' in serializer.validated_data:
+                profile.address = serializer.validated_data.get('address') or None
+                profile.save(update_fields=['address'])
+            
+            # Update profile image if provided
+            if 'profile_image' in serializer.validated_data:
+                # Delete old image if exists
+                if profile.profile_image:
+                    profile.profile_image.delete(save=False)
+                profile.profile_image = serializer.validated_data['profile_image']
+                profile.save(update_fields=['profile_image'])
+            
+        logger.info(f"Profile updated for user {user.email}")
+        
+        # Return updated profile data
+        user_serializer = UserSerializer(user, context={'request': request})
+        
+        return Response(
+            {
+                'message': 'Profile updated successfully',
+                'address': profile.address,
+                'profile_image_url': user_serializer.data.get('profile_image_url'),
+            },
+            status=status.HTTP_200_OK
+        )
+    except Exception as e:
+        logger.error(f"Failed to update profile for user {user.email}: {e}")
+        return Response(
+            {'error': 'Failed to update profile. Please try again.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 

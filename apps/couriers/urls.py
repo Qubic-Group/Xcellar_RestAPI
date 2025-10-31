@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
@@ -6,6 +7,13 @@ from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import extend_schema, OpenApiExample
 
 from apps.core.permissions import IsCourier
+from .views import VehicleViewSet
+
+# Create router and register viewsets
+router = DefaultRouter()
+router.register(r'vehicles', VehicleViewSet, basename='vehicle')
+
+app_name = 'couriers'
 
 
 @extend_schema(
@@ -51,9 +59,8 @@ def courier_dashboard(request):
     }, status=status.HTTP_200_OK)
 
 
-app_name = 'couriers'
-
+# Combine router URLs with function-based views
 urlpatterns = [
     path('dashboard/', courier_dashboard, name='courier_dashboard'),
+    path('', include(router.urls)),
 ]
-

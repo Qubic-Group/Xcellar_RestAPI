@@ -6,6 +6,18 @@ from django.core.validators import RegexValidator
 from apps.core.models import AbstractBaseModel
 
 
+def validate_image_file(value):
+    """Validate image file types"""
+    import os
+    ext = os.path.splitext(value.name)[1].lower()
+    allowed_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
+    if ext not in allowed_extensions:
+        from django.core.exceptions import ValidationError
+        raise ValidationError(
+            f'File type not allowed. Allowed image types: JPG, JPEG, PNG, GIF, BMP, WEBP'
+        )
+
+
 class UserManager(BaseUserManager):
     """Custom user manager"""
     def create_user(self, email, password=None, **extra_fields):
@@ -92,6 +104,14 @@ class UserProfile(AbstractBaseModel):
         related_name='user_profile'
     )
     full_name = models.CharField(max_length=200, default='')
+    address = models.TextField(blank=True, null=True, help_text='User address')
+    profile_image = models.ImageField(
+        upload_to='profiles/user/',
+        blank=True,
+        null=True,
+        validators=[validate_image_file],
+        help_text='User profile image'
+    )
     # Add more customer-specific fields as needed
 
     class Meta:
@@ -118,6 +138,14 @@ class CourierProfile(AbstractBaseModel):
     vehicle_registration = models.CharField(max_length=50, blank=True, null=True)
     is_available = models.BooleanField(default=False)
     current_location = models.JSONField(null=True, blank=True)
+    address = models.TextField(blank=True, null=True, help_text='Courier address')
+    profile_image = models.ImageField(
+        upload_to='profiles/courier/',
+        blank=True,
+        null=True,
+        validators=[validate_image_file],
+        help_text='Courier profile image'
+    )
     # Add more courier-specific fields as needed
 
     class Meta:
