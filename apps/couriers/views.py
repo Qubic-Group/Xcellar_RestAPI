@@ -1,9 +1,10 @@
 from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import extend_schema, OpenApiExample
 import logging
 
@@ -222,4 +223,178 @@ class VehicleViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(vehicle)
         logger.info(f"Vehicle deactivated: {vehicle.license_plate_number}")
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=['Couriers'],
+    summary='Get Driver License',
+    description='Retrieve driver license information for the authenticated courier. Returns empty response if license not created yet.',
+    responses={
+        200: {
+            'description': 'Driver license data or empty response',
+            'examples': {
+                'application/json': {
+                    'id': 1,
+                    'license_number': 'DL123456',
+                    'issue_date': '2020-01-15',
+                    'expiry_date': '2025-01-15',
+                    'issuing_authority': 'DMV',
+                    'front_page_url': 'http://localhost:8000/media/licenses/documents/front/license_1.jpg',
+                    'back_page_url': 'http://localhost:8000/media/licenses/documents/back/license_1.jpg',
+                    'is_expired': False,
+                }
+            }
+        },
+        401: {'description': 'Authentication required'},
+        403: {'description': 'Forbidden - Only couriers allowed'},
+    },
+    examples=[
+        OpenApiExample(
+            'Driver License Response',
+            value={
+                'id': 1,
+                'license_number': 'DL123456',
+                'issue_date': '2020-01-15',
+                'expiry_date': '2025-01-15',
+                'issuing_authority': 'DMV',
+                'front_page_url': 'http://localhost:8000/media/licenses/documents/front/license_1.jpg',
+                'back_page_url': 'http://localhost:8000/media/licenses/documents/back/license_1.jpg',
+                'is_expired': False,
+            },
+            response_only=True,
+        ),
+    ],
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsCourier])
+@ratelimit(key='user', rate='100/h', method='GET')
+def driver_license(request):
+    """
+    Get driver license for authenticated courier.
+    GET /api/v1/couriers/license/
+    """
+    try:
+        courier_profile = request.user.courier_profile
+        license_obj = courier_profile.driver_license
+        serializer = DriverLicenseSerializer(license_obj, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    except DriverLicense.DoesNotExist:
+        # License not created yet, return empty response
+        return Response(
+            {
+                'message': 'Driver license not registered yet. Use PUT/PATCH to create.',
+                'license': None
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+@extend_schema(
+    tags=['Couriers'],
+    summary='Create/Update Driver License',
+    description='Create or update driver license information for the authenticated courier. Supports file uploads. Auto-creates license if it doesn\'t exist.',
+    request=DriverLicenseSerializer,
+    responses={
+        200: {
+            'description': 'Driver license created/updated successfully',
+            'examples': {
+                'application/json': {
+                    'message': 'Driver license updated successfully',
+                    'license': {
+                        'id': 1,
+                        'license_number': 'DL123456',
+                        'issue_date': '2020-01-15',
+                        'expiry_date': '2025-01-15',
+                        'issuing_authority': 'DMV',
+                    }
+                }
+            }
+        },
+        400: {'description': 'Validation error'},
+        401: {'description': 'Authentication required'},
+        403: {'description': 'Forbidden - Only couriers allowed'},
+    },
+    examples=[
+        OpenApiExample(
+            'Update Driver License Request',
+            value={
+                'license_number': 'DL123456',
+                'issue_date': '2020-01-15',
+                'expiry_date': '2025-01-15',
+                'issuing_authority': 'DMV',
+                'front_page': '<file>',
+                'back_page': '<file>',
+            },
+            request_only=True,
+        ),
+    ],
+)
+@api_view(['PUT', 'PATCH'])
+@permission_classes([IsAuthenticated, IsCourier])
+@ratelimit(key='user', rate='10/h', method=['PUT', 'PATCH'])
+def update_driver_license(request):
+    """
+    Create or update driver license for authenticated courier.
+    PUT/PATCH /api/v1/couriers/license/update/
+    """
+    from django.db import transaction
+    
+    courier_profile = request.user.courier_profile
+    is_create = False
+    license_obj = None
+    
+    try:
+        license_obj = courier_profile.driver_license
+        serializer = DriverLicenseSerializer(
+            license_obj,
+            data=request.data,
+            partial=request.method == 'PATCH',
+            context={'request': request}
+        )
+    except DriverLicense.DoesNotExist:
+        # License doesn't exist, create new one
+        is_create = True
+        serializer = DriverLicenseSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+    
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        with transaction.atomic():
+            # Handle file deletions if replacing
+            old_front_page = None
+            old_back_page = None
+            
+            if not is_create and license_obj:
+                old_front_page = license_obj.front_page
+                old_back_page = license_obj.back_page
+            
+            # Save license, automatically assign to courier_profile
+            license_obj = serializer.save(courier_profile=courier_profile)
+            
+            # Delete old files if new ones were uploaded
+            if 'front_page' in serializer.validated_data and old_front_page:
+                old_front_page.delete(save=False)
+            if 'back_page' in serializer.validated_data and old_back_page:
+                old_back_page.delete(save=False)
+            
+        logger.info(f"Driver license {'created' if is_create else 'updated'} for courier {request.user.email}")
+        
+        response_serializer = DriverLicenseSerializer(license_obj, context={'request': request})
+        return Response(
+            {
+                'message': f'Driver license {"created" if is_create else "updated"} successfully',
+                'license': response_serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+    except Exception as e:
+        logger.error(f"Failed to update driver license for courier {request.user.email}: {e}")
+        return Response(
+            {'error': 'Failed to update driver license. Please try again.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 

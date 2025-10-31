@@ -7,7 +7,7 @@ from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import extend_schema, OpenApiExample
 
 from apps.core.permissions import IsCourier
-from .views import VehicleViewSet
+from .views import VehicleViewSet, driver_license, update_driver_license
 
 # Create router and register viewsets
 router = DefaultRouter()
@@ -62,5 +62,7 @@ def courier_dashboard(request):
 # Combine router URLs with function-based views
 urlpatterns = [
     path('dashboard/', courier_dashboard, name='courier_dashboard'),
+    path('license/', driver_license, name='driver_license'),
+    path('license/update/', update_driver_license, name='update_driver_license'),
     path('', include(router.urls)),
 ]

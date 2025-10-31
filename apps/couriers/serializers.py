@@ -207,13 +207,11 @@ class DriverLicenseSerializer(serializers.ModelSerializer):
         return value
     
     def validate_expiry_date(self, value):
-        """Validate expiry date is not in the past (if provided)"""
+        """Validate expiry date format (allows expired licenses)"""
         if value:
-            today = datetime.now().date()
-            if value < today:
-                raise serializers.ValidationError(
-                    'Expiry date cannot be in the past. Please update your license.'
-                )
+            # Allow expired licenses - they'll be marked as expired
+            # No validation needed, just accept the date
+            pass
         return value
     
     def validate_issue_date(self, value):
