@@ -352,11 +352,15 @@ def verify_payment(request):
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-@ratelimit(key='user', rate='5/h', method='POST')
 def create_dva(request):
     """Create dedicated virtual account (single-step)"""
+    # Debug logging
+    logger.info(f"create_dva called by user: {request.user.email if request.user.is_authenticated else 'Anonymous'}")
+    logger.info(f"User authenticated: {request.user.is_authenticated}")
+    logger.info(f"User type: {request.user.user_type if request.user.is_authenticated else 'N/A'}")
+    
     try:
-        # Check if DVA already exists
+        # Step 1: Check if DVA already exists locally
         if hasattr(request.user, 'dedicated_virtual_account'):
             dva = request.user.dedicated_virtual_account
             serializer = DedicatedVirtualAccountSerializer(dva)
@@ -365,34 +369,37 @@ def create_dva(request):
                 'dva': serializer.data,
             }, status=status.HTTP_200_OK)
         
-        # Create Paystack customer if needed
+        # Step 2: Get or create Paystack customer and check for existing DVA
         paystack_client = PaystackClient()
         
-        # Get user full name
-        full_name = request.user.get_full_name()
-        name_parts = full_name.split(' ', 1) if full_name else ['', '']
-        first_name = name_parts[0] if len(name_parts) > 0 else ''
-        last_name = name_parts[1] if len(name_parts) > 1 else ''
-        
-        # Create customer
-        customer_response = paystack_client.create_customer(
-            email=request.user.email,
-            first_name=first_name,
-            last_name=last_name,
-            phone=request.user.phone_number,
-            metadata={
-                'user_id': request.user.id,
-                'user_type': request.user.user_type,
-            }
-        )
+        # Get customer from Paystack (or create if doesn't exist)
+        customer_response = paystack_client.get_customer(email=request.user.email)
         
         if not customer_response.get('status'):
-            error_message = customer_response.get('message', 'Failed to create customer')
-            logger.error(f"Failed to create Paystack customer: {error_message}. Response: {customer_response}")
-            return Response(
-                {'error': error_message},
-                status=status.HTTP_400_BAD_REQUEST
+            # Customer doesn't exist, create one
+            full_name = request.user.get_full_name()
+            name_parts = full_name.split(' ', 1) if full_name else ['', '']
+            first_name = name_parts[0] if len(name_parts) > 0 else ''
+            last_name = name_parts[1] if len(name_parts) > 1 else ''
+            
+            customer_response = paystack_client.create_customer(
+                email=request.user.email,
+                first_name=first_name,
+                last_name=last_name,
+                phone=request.user.phone_number,
+                metadata={
+                    'user_id': request.user.id,
+                    'user_type': request.user.user_type,
+                }
             )
+            
+            if not customer_response.get('status'):
+                error_message = customer_response.get('message', 'Failed to create customer')
+                logger.error(f"Failed to create Paystack customer: {error_message}. Response: {customer_response}")
+                return Response(
+                    {'error': error_message},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         
         # Validate customer response has data
         if 'data' not in customer_response:
@@ -409,6 +416,69 @@ def create_dva(request):
                 {'error': 'Failed to get customer code from Paystack'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        
+        # Step 3: Check if DVA already exists in Paystack for this customer
+        logger.info(f"Checking for existing DVA for customer {customer_code}...")
+        existing_dva_response = paystack_client.get_dedicated_accounts(customer_code=customer_code)
+        
+        if existing_dva_response.get('status') and existing_dva_response.get('data'):
+            # DVA already exists in Paystack, sync it to our database
+            logger.info(f"Found existing DVA in Paystack for customer {customer_code}")
+            dedicated_accounts = existing_dva_response['data']
+            
+            # Handle both array and single object responses
+            if not isinstance(dedicated_accounts, list):
+                dedicated_accounts = [dedicated_accounts]
+            
+            # Get the first active account
+            for account_data in dedicated_accounts:
+                # Extract dedicated_account - could be nested or direct
+                dedicated_account = None
+                if isinstance(account_data, dict):
+                    if 'dedicated_account' in account_data:
+                        dedicated_account = account_data['dedicated_account']
+                    elif account_data.get('account_number'):
+                        dedicated_account = account_data
+                
+                if dedicated_account and isinstance(dedicated_account, dict) and dedicated_account.get('account_number'):
+                    # Sync DVA to database
+                    dva, created = DedicatedVirtualAccount.objects.update_or_create(
+                        user=request.user,
+                        defaults={
+                            'paystack_customer_id': str(customer_response['data'].get('id', '')),
+                            'account_number': dedicated_account.get('account_number', ''),
+                            'bank_name': dedicated_account.get('bank', {}).get('name', '') if isinstance(dedicated_account.get('bank'), dict) else '',
+                            'bank_slug': dedicated_account.get('bank', {}).get('slug', '') if isinstance(dedicated_account.get('bank'), dict) else '',
+                            'account_name': dedicated_account.get('account_name', ''),
+                            'currency': dedicated_account.get('currency', 'NGN'),
+                        }
+                    )
+                    
+                    if created:
+                        Notification.objects.create(
+                            user=request.user,
+                            notification_type='DVA_CREATED',
+                            title='Dedicated Account Synced',
+                            message=f'Your dedicated account {dva.account_number} has been synced from Paystack',
+                            metadata={
+                                'account_number': dva.account_number,
+                                'bank_name': dva.bank_name,
+                            }
+                        )
+                    
+                    serializer = DedicatedVirtualAccountSerializer(dva)
+                    return Response({
+                        'message': 'DVA already exists and has been synced',
+                        'dva': serializer.data,
+                    }, status=status.HTTP_200_OK)
+        
+        # Step 4: Create new DVA (only if none exists)
+        logger.info(f"No existing DVA found. Creating new DVA for customer {customer_code}...")
+        
+        full_name = request.user.get_full_name()
+        name_parts = full_name.split(' ', 1) if full_name else ['', '']
+        first_name = name_parts[0] if len(name_parts) > 0 else ''
+        last_name = name_parts[1] if len(name_parts) > 1 else ''
         
         # Assign DVA (single-step)
         dva_response = paystack_client.assign_dedicated_account(
@@ -427,79 +497,110 @@ def create_dva(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Paystack single-step DVA assignment is asynchronous
-        # If response indicates "in progress", we need to wait for webhook
-        message = dva_response.get('message', '')
-        if 'in progress' in message.lower() or 'data' not in dva_response:
-            # DVA assignment is being processed asynchronously
-            # The webhook will create the DVA when Paystack completes it
-            logger.info(f"DVA assignment in progress for user {request.user.email}. Waiting for webhook.")
+        # Paystack single-step DVA assignment can be asynchronous
+        # Check if DVA was created immediately or is in progress
+        message = dva_response.get('message', '').lower()
+        dva_data = dva_response.get('data', {})
+        dedicated_account = dva_data.get('dedicated_account', {}) if dva_data else {}
+        
+        # If response indicates "in progress" or no data, fetch from Paystack
+        if 'in progress' in message or not dedicated_account or not dedicated_account.get('account_number'):
+            logger.info(f"DVA assignment in progress for user {request.user.email}. Fetching from Paystack...")
             
-            # Check if DVA already exists (might have been created by webhook already)
-            try:
-                dva = request.user.dedicated_virtual_account
-                serializer = DedicatedVirtualAccountSerializer(dva)
-                return Response({
-                    'message': 'DVA already exists',
-                    'dva': serializer.data,
-                }, status=status.HTTP_200_OK)
-            except AttributeError:
-                # DVA doesn't exist yet, return pending status
-                return Response({
-                    'message': 'DVA assignment is in progress. You will be notified when it\'s ready.',
-                    'status': 'pending',
-                    'customer_code': customer_code,
-                }, status=status.HTTP_202_ACCEPTED)
-        
-        # If we have data, process synchronously (shouldn't happen with single-step, but handle it)
-        dva_data = dva_response['data']
-        dedicated_account = dva_data.get('dedicated_account', {})
-        
-        # Validate dedicated_account structure
-        if not dedicated_account:
-            logger.error(f"Dedicated account data not found in response: {dva_data}")
+            # Wait a moment and fetch DVA from Paystack API
+            import time
+            time.sleep(2)  # Brief delay for async processing
+            
+            dva_list_response = paystack_client.get_dedicated_accounts(customer_code=customer_code)
+            
+            if dva_list_response.get('status') and dva_list_response.get('data'):
+                dedicated_accounts = dva_list_response['data']
+                
+                # Handle both array and single object responses
+                if not isinstance(dedicated_accounts, list):
+                    dedicated_accounts = [dedicated_accounts]
+                
+                # Get the first active account
+                for account_data in dedicated_accounts:
+                    # Extract dedicated_account - could be nested or direct
+                    dedicated_account = None
+                    if isinstance(account_data, dict):
+                        if 'dedicated_account' in account_data:
+                            dedicated_account = account_data['dedicated_account']
+                        elif account_data.get('account_number'):
+                            dedicated_account = account_data
+                    
+                    if dedicated_account and isinstance(dedicated_account, dict) and dedicated_account.get('account_number'):
+                        # DVA exists in Paystack, sync it to our database
+                        dva, created = DedicatedVirtualAccount.objects.update_or_create(
+                            user=request.user,
+                            defaults={
+                                'paystack_customer_id': str(customer_response['data'].get('id', '')),
+                                'account_number': dedicated_account.get('account_number', ''),
+                                'bank_name': dedicated_account.get('bank', {}).get('name', '') if isinstance(dedicated_account.get('bank'), dict) else '',
+                                'bank_slug': dedicated_account.get('bank', {}).get('slug', '') if isinstance(dedicated_account.get('bank'), dict) else '',
+                                'account_name': dedicated_account.get('account_name', ''),
+                                'currency': dedicated_account.get('currency', 'NGN'),
+                            }
+                        )
+                        
+                        if created:
+                            Notification.objects.create(
+                                user=request.user,
+                                notification_type='DVA_CREATED',
+                                title='Dedicated Account Created',
+                                message=f'Your dedicated account {dva.account_number} has been created at {dva.bank_name}',
+                                metadata={
+                                    'account_number': dva.account_number,
+                                    'bank_name': dva.bank_name,
+                                }
+                            )
+                        
+                        serializer = DedicatedVirtualAccountSerializer(dva)
+                        return Response(serializer.data, status=status.HTTP_201_CREATED)
+            
+            # If still not found, return accepted status (webhook will update later)
+            logger.info(f"DVA assignment in progress. Will be synced via webhook.")
             return Response(
-                {'error': 'Dedicated account data not found in Paystack response'},
+                {'message': 'DVA creation in progress. You will be notified when ready.'},
+                status=status.HTTP_202_ACCEPTED
+            )
+        
+        # DVA was created successfully (synchronous response)
+        if not dedicated_account or not dedicated_account.get('account_number'):
+            logger.error(f"Invalid DVA response structure: {dva_response}")
+            return Response(
+                {'error': 'Invalid DVA response from Paystack'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
-        # Extract account number (required)
-        account_number = dedicated_account.get('account_number')
-        if not account_number:
-            logger.error(f"Account number not found in dedicated account: {dedicated_account}")
-            return Response(
-                {'error': 'Account number not found in Paystack response'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        
-        # Create DVA record
-        dva = DedicatedVirtualAccount.objects.create(
+        # Save DVA to database
+        dva, created = DedicatedVirtualAccount.objects.update_or_create(
             user=request.user,
-            paystack_customer_id=str(customer_response['data'].get('id', '')),
-            account_number=account_number,
-            bank_name=dedicated_account.get('bank', {}).get('name', ''),
-            bank_slug=dedicated_account.get('bank', {}).get('slug', ''),
-            account_name=dedicated_account.get('account_name', ''),
-            currency=dedicated_account.get('currency', 'NGN'),
-        )
-        
-        # Create notification
-        Notification.objects.create(
-            user=request.user,
-            notification_type='DVA_CREATED',
-            title='Dedicated Account Created',
-            message=f'Your dedicated account {dva.account_number} has been created at {dva.bank_name}',
-            metadata={
-                'account_number': dva.account_number,
-                'bank_name': dva.bank_name,
+            defaults={
+                'paystack_customer_id': str(customer_response['data'].get('id', '')),
+                'account_number': dedicated_account.get('account_number', ''),
+                'bank_name': dedicated_account.get('bank', {}).get('name', '') if isinstance(dedicated_account.get('bank'), dict) else '',
+                'bank_slug': dedicated_account.get('bank', {}).get('slug', '') if isinstance(dedicated_account.get('bank'), dict) else '',
+                'account_name': dedicated_account.get('account_name', ''),
+                'currency': dedicated_account.get('currency', 'NGN'),
             }
         )
         
+        if created:
+            Notification.objects.create(
+                user=request.user,
+                notification_type='DVA_CREATED',
+                title='Dedicated Account Created',
+                message=f'Your dedicated account {dva.account_number} has been created at {dva.bank_name}',
+                metadata={
+                    'account_number': dva.account_number,
+                    'bank_name': dva.bank_name,
+                }
+            )
+        
         serializer = DedicatedVirtualAccountSerializer(dva)
-        return Response({
-            'message': 'DVA created successfully',
-            'dva': serializer.data,
-        }, status=status.HTTP_201_CREATED)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
         
     except Exception as e:
         logger.error(f"Error creating DVA: {e}", exc_info=True)
@@ -512,7 +613,7 @@ def create_dva(request):
 @extend_schema(
     tags=['Payments'],
     summary='Get Dedicated Virtual Account',
-    description='Get dedicated virtual account details for authenticated user.',
+    description='Get dedicated virtual account details for authenticated user. If not found locally, will sync from Paystack.',
     responses={
         200: DedicatedVirtualAccountSerializer,
         404: {'description': 'DVA not found'},
@@ -523,16 +624,111 @@ def create_dva(request):
 @permission_classes([IsAuthenticated])
 @ratelimit(key='user', rate='100/h', method='GET')
 def get_dva(request):
-    """Get user's DVA"""
+    """Get user's DVA, sync from Paystack if not found locally"""
     try:
         dva = request.user.dedicated_virtual_account
         serializer = DedicatedVirtualAccountSerializer(dva)
         return Response(serializer.data, status=status.HTTP_200_OK)
     except AttributeError:
-        return Response(
-            {'error': 'DVA not found. Create one first.'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        # DVA not found locally, try to sync from Paystack
+        logger.info(f"DVA not found locally for user {request.user.email}. Attempting to sync from Paystack...")
+        
+        try:
+            paystack_client = PaystackClient()
+            
+            # Get customer from Paystack
+            customer_response = paystack_client.get_customer(email=request.user.email)
+            
+            if not customer_response.get('status') or 'data' not in customer_response:
+                logger.warning(f"Customer not found in Paystack for {request.user.email}. Response: {customer_response}")
+                return Response(
+                    {'error': 'DVA not found. Create one first.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            customer_code = customer_response['data'].get('customer_code')
+            if not customer_code:
+                logger.warning(f"Customer code not found in Paystack response: {customer_response}")
+                return Response(
+                    {'error': 'DVA not found. Create one first.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Get dedicated accounts from Paystack
+            dva_list_response = paystack_client.get_dedicated_accounts(customer_code=customer_code)
+            
+            if not dva_list_response.get('status'):
+                logger.warning(f"Failed to fetch dedicated accounts from Paystack: {dva_list_response}")
+                return Response(
+                    {'error': 'DVA not found. Create one first.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            if dva_list_response.get('data'):
+                dedicated_accounts = dva_list_response['data']
+                
+                # Handle both array and single object responses
+                if not isinstance(dedicated_accounts, list):
+                    dedicated_accounts = [dedicated_accounts]
+                
+                # Find the first active account with account_number
+                for account_data in dedicated_accounts:
+                    # Extract dedicated_account - could be nested or direct
+                    dedicated_account = None
+                    
+                    if isinstance(account_data, dict):
+                        # Check if dedicated_account is nested
+                        if 'dedicated_account' in account_data:
+                            dedicated_account = account_data['dedicated_account']
+                        # Check if account_data IS the dedicated_account
+                        elif account_data.get('account_number'):
+                            dedicated_account = account_data
+                    
+                    if dedicated_account and isinstance(dedicated_account, dict):
+                        account_number = dedicated_account.get('account_number')
+                        if account_number:
+                            # Sync DVA to database
+                            dva, created = DedicatedVirtualAccount.objects.update_or_create(
+                                user=request.user,
+                                defaults={
+                                    'paystack_customer_id': str(customer_response['data'].get('id', '')),
+                                    'account_number': account_number,
+                                    'bank_name': dedicated_account.get('bank', {}).get('name', '') if isinstance(dedicated_account.get('bank'), dict) else '',
+                                    'bank_slug': dedicated_account.get('bank', {}).get('slug', '') if isinstance(dedicated_account.get('bank'), dict) else '',
+                                    'account_name': dedicated_account.get('account_name', ''),
+                                    'currency': dedicated_account.get('currency', 'NGN'),
+                                }
+                            )
+                            
+                            if created:
+                                # Create notification only if newly synced
+                                Notification.objects.create(
+                                    user=request.user,
+                                    notification_type='DVA_CREATED',
+                                    title='Dedicated Account Synced',
+                                    message=f'Your dedicated account {dva.account_number} has been synced from Paystack',
+                                    metadata={
+                                        'account_number': dva.account_number,
+                                        'bank_name': dva.bank_name,
+                                    }
+                                )
+                            
+                            serializer = DedicatedVirtualAccountSerializer(dva)
+                            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+            # No DVA found in Paystack either
+            logger.warning(f"No dedicated accounts found in Paystack for customer {customer_code}. Response: {dva_list_response}")
+            return Response(
+                {'error': 'DVA not found. Create one first.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        except Exception as e:
+            logger.error(f"Error syncing DVA from Paystack: {e}", exc_info=True)
+            return Response(
+                {'error': 'DVA not found. Create one first.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 
 class TransactionViewSet(viewsets.ReadOnlyModelViewSet):

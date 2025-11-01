@@ -321,4 +321,106 @@ class PaystackClient:
             dict: List of banks
         """
         return self._make_request('GET', '/bank', params={'country': country})
+    
+    def get_customer(self, email=None, customer_code=None):
+        """
+        Get customer details from Paystack.
+        
+        Args:
+            email: Customer email
+            customer_code: Customer code
+        
+        Returns:
+            dict: Customer details
+        """
+        if email:
+            # Paystack accepts email directly in the URL, but we need to handle special characters
+            import urllib.parse
+            encoded_email = urllib.parse.quote(email, safe='')
+            return self._make_request('GET', f'/customer/{encoded_email}')
+        elif customer_code:
+            return self._make_request('GET', f'/customer/{customer_code}')
+        else:
+            return {'status': False, 'message': 'Either email or customer_code is required'}
+    
+    def get_dedicated_accounts(self, customer_code=None, customer_email=None):
+        """
+        Get dedicated virtual accounts for a customer.
+        
+        According to Paystack documentation:
+        1. The customer object includes a 'dedicated_account' field if DVA exists
+        2. The '/dedicated_account' endpoint accepts 'customer' query parameter
+        
+        Args:
+            customer_code: Paystack customer code (preferred)
+            customer_email: Customer email (alternative, resolves to customer_code first)
+        
+        Returns:
+            dict: Paystack response with 'status' and 'data' keys
+                - 'data' can be a list of accounts or a single account object
+        """
+        # Step 1: Get customer details first (primary source for DVA)
+        customer_response = None
+        resolved_customer_code = customer_code
+        
+        if customer_code:
+            customer_response = self.get_customer(customer_code=customer_code)
+        elif customer_email:
+            customer_response = self.get_customer(email=customer_email)
+            if customer_response.get('status') and customer_response.get('data'):
+                resolved_customer_code = customer_response['data'].get('customer_code')
+        
+        # Step 2: Check customer object for dedicated_account field
+        if customer_response and customer_response.get('status'):
+            customer_data = customer_response.get('data', {})
+            
+            # Paystack stores DVA in 'dedicated_account' field (singular) in customer object
+            if 'dedicated_account' in customer_data:
+                dedicated_account = customer_data['dedicated_account']
+                
+                # Check if dedicated_account is not None and has account_number
+                if dedicated_account and isinstance(dedicated_account, dict):
+                    account_number = dedicated_account.get('account_number')
+                    if account_number:
+                        logger.info(f"Found DVA in customer object: {account_number}")
+                        # Return in format expected by views
+                        return {
+                            'status': True,
+                            'data': [{'dedicated_account': dedicated_account}]
+                        }
+            
+            # Also check for 'dedicated_accounts' (plural) - though this is less common
+            if 'dedicated_accounts' in customer_data:
+                dedicated_accounts = customer_data['dedicated_accounts']
+                if dedicated_accounts:
+                    # Handle both list and single object
+                    if isinstance(dedicated_accounts, list) and len(dedicated_accounts) > 0:
+                        logger.info(f"Found {len(dedicated_accounts)} dedicated accounts in customer object")
+                        return {
+                            'status': True,
+                            'data': dedicated_accounts
+                        }
+                    elif isinstance(dedicated_accounts, dict) and dedicated_accounts.get('account_number'):
+                        logger.info(f"Found dedicated account in customer object: {dedicated_accounts.get('account_number')}")
+                        return {
+                            'status': True,
+                            'data': [{'dedicated_account': dedicated_accounts}]
+                        }
+        
+        # Step 3: If not found in customer object, query dedicated_account endpoint
+        if not resolved_customer_code:
+            logger.warning("Customer code not found, cannot query dedicated_account endpoint")
+            return {'status': False, 'message': 'Customer code not found'}
+        
+        # Paystack API: GET /dedicated_account?customer={customer_code}
+        params = {'customer': resolved_customer_code}
+        response = self._make_request('GET', '/dedicated_account', params=params)
+        
+        # Log the full response for debugging
+        if response.get('status') and response.get('data'):
+            logger.info(f"Found dedicated accounts via /dedicated_account endpoint for customer {resolved_customer_code}")
+        else:
+            logger.warning(f"No dedicated accounts found via /dedicated_account endpoint. Response: {response}")
+        
+        return response
 
