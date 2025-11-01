@@ -153,7 +153,7 @@ class DedicatedVirtualAccountAdmin(admin.ModelAdmin):
         'user__email',
         'bank_name',
     ]
-    readonly_fields = ['created_at', 'updated_at']
+    readonly_fields = ['created_at', 'updated_at', 'paystack_customer_id']
     ordering = ['-created_at']
     
     fieldsets = (
@@ -213,7 +213,7 @@ class TransferRecipientAdmin(admin.ModelAdmin):
         'user__email',
         'paystack_recipient_code',
     ]
-    readonly_fields = ['created_at', 'updated_at']
+    readonly_fields = ['created_at', 'updated_at', 'paystack_recipient_code']
     ordering = ['-created_at']
     
     fieldsets = (

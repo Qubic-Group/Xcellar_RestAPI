@@ -6,20 +6,36 @@ from .password_reset.models import PasswordResetToken
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    list_display = ['email', 'phone_number', 'user_type', 'is_active', 'date_joined']
-    list_filter = ['user_type', 'is_active', 'is_staff']
+    list_display = ['email', 'phone_number', 'user_type', 'is_active', 'is_staff', 'date_joined', 'last_login']
+    list_filter = ['user_type', 'is_active', 'is_staff', 'is_superuser', 'date_joined']
     search_fields = ['email', 'phone_number']
     ordering = ['-date_joined']
     
-    fieldsets = BaseUserAdmin.fieldsets + (
+    # Remove fieldsets that reference non-existent fields
+    fieldsets = (
+        (None, {'fields': ('email', 'password')}),
+        ('Permissions', {
+            'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions'),
+        }),
         ('Additional Info', {'fields': ('user_type', 'phone_number')}),
+        ('Important dates', {'fields': ('last_login', 'date_joined')}),
+    )
+    
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': ('email', 'phone_number', 'user_type', 'password1', 'password2'),
+        }),
     )
 
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'full_name', 'has_address', 'has_profile_image', 'is_active']
+    list_display = ['user', 'full_name', 'balance', 'has_address', 'has_profile_image', 'is_active', 'created_at']
+    list_filter = ['is_active', 'created_at']
     search_fields = ['full_name', 'user__email', 'address']
+    readonly_fields = ['created_at', 'updated_at']
+    ordering = ['-created_at']
     
     fieldsets = (
         ('User Information', {
@@ -28,29 +44,44 @@ class UserProfileAdmin(admin.ModelAdmin):
         ('Profile Details', {
             'fields': ('address', 'profile_image')
         }),
+        ('Financial', {
+            'fields': ('balance',),
+            'description': 'User account balance'
+        }),
         ('Status', {
             'fields': ('is_active',)
         }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
     )
+    
+    def get_queryset(self, request):
+        """Optimize queryset"""
+        qs = super().get_queryset(request)
+        return qs.select_related('user')
     
     def has_address(self, obj):
         """Check if profile has address"""
-        return 'Yes' if obj.address else 'No'
+        return bool(obj.address)
     has_address.boolean = True
     has_address.short_description = 'Has Address'
     
     def has_profile_image(self, obj):
         """Check if profile has image"""
-        return 'Yes' if obj.profile_image else 'No'
+        return bool(obj.profile_image)
     has_profile_image.boolean = True
     has_profile_image.short_description = 'Has Image'
 
 
 @admin.register(CourierProfile)
 class CourierProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'full_name', 'is_available', 'has_address', 'has_profile_image', 'is_active']
+    list_display = ['user', 'full_name', 'balance', 'is_available', 'has_address', 'has_profile_image', 'is_active', 'created_at']
     search_fields = ['full_name', 'user__email', 'address', 'license_number']
-    list_filter = ['is_available', 'is_active']
+    list_filter = ['is_available', 'is_active', 'created_at']
+    readonly_fields = ['created_at', 'updated_at']
+    ordering = ['-created_at']
     
     fieldsets = (
         ('Courier Information', {
@@ -63,23 +94,36 @@ class CourierProfileAdmin(admin.ModelAdmin):
             'fields': ('vehicle_type', 'vehicle_registration'),
             'classes': ('collapse',)
         }),
+        ('Financial', {
+            'fields': ('balance',),
+            'description': 'Courier account balance'
+        }),
         ('Status & Location', {
             'fields': ('is_available', 'current_location')
         }),
         ('System', {
             'fields': ('is_active',)
         }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
     )
+    
+    def get_queryset(self, request):
+        """Optimize queryset"""
+        qs = super().get_queryset(request)
+        return qs.select_related('user')
     
     def has_address(self, obj):
         """Check if profile has address"""
-        return 'Yes' if obj.address else 'No'
+        return bool(obj.address)
     has_address.boolean = True
     has_address.short_description = 'Has Address'
     
     def has_profile_image(self, obj):
         """Check if profile has image"""
-        return 'Yes' if obj.profile_image else 'No'
+        return bool(obj.profile_image)
     has_profile_image.boolean = True
     has_profile_image.short_description = 'Has Image'
 
