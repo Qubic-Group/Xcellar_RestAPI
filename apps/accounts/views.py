@@ -35,15 +35,26 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     @extend_schema(
         tags=['Authentication'],
         summary='Login',
-        description='Authenticate user and obtain JWT access and refresh tokens. Use the access token for subsequent API requests.',
+        description='Authenticate user and obtain JWT access and refresh tokens along with user data. Use the access token for subsequent API requests.',
         request=CustomTokenObtainPairSerializer,
         responses={
             200: {
                 'description': 'Successful authentication',
                 'examples': {
                     'application/json': {
-                        'access': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...',
-                        'refresh': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...',
+                        'message': 'Login successful',
+                        'user': {
+                            'id': 1,
+                            'email': 'user@example.com',
+                            'phone_number': '+1234567890',
+                            'user_type': 'USER',
+                            'date_joined': '2025-10-30T18:00:00Z',
+                            'full_name': 'John Doe',
+                        },
+                        'tokens': {
+                            'access': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...',
+                            'refresh': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...',
+                        }
                     }
                 }
             },
@@ -62,8 +73,19 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             OpenApiExample(
                 'Login Response',
                 value={
-                    'access': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...',
-                    'refresh': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...',
+                    'message': 'Login successful',
+                    'user': {
+                        'id': 1,
+                        'email': 'user@example.com',
+                        'phone_number': '+1234567890',
+                        'user_type': 'USER',
+                        'date_joined': '2025-10-30T18:00:00Z',
+                        'full_name': 'John Doe',
+                    },
+                    'tokens': {
+                        'access': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...',
+                        'refresh': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...',
+                    }
                 },
                 response_only=True,
             ),
@@ -71,7 +93,28 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     )
     @method_decorator(ratelimit(key='ip', rate='5/m', method='POST'))
     def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+        
+        # Validate credentials
+        serializer.is_valid(raise_exception=True)
+        
+        # Get user from serializer (available after validation)
+        user = serializer.user
+        
+        # Call parent to get token response
+        response = super().post(request, *args, **kwargs)
+        
+        # Add user data to response
+        response.data = {
+            'message': 'Login successful',
+            'user': UserSerializer(user, context={'request': request}).data,
+            'tokens': {
+                'access': response.data['access'],
+                'refresh': response.data['refresh']
+            }
+        }
+        
+        return response
 
 
 class CustomTokenRefreshView(TokenRefreshView):

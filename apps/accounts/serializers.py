@@ -119,6 +119,12 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token['user_type'] = user.user_type
         token['email'] = user.email
         return token
+    
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        # Store user for use in view
+        self.user = self.user
+        return data
 
 
 class PasswordChangeSerializer(serializers.Serializer):
