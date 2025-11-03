@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'apps.faq',
     'apps.help',
     'apps.payments',
+    'django_celery_beat',  # Celery Beat scheduler
 ]
 
 MIDDLEWARE = [
@@ -192,6 +193,35 @@ N8N_API_URL = os.environ.get('N8N_API_URL', 'http://n8n:5678')
 N8N_WEBHOOK_SECRET = os.environ.get('N8N_WEBHOOK_SECRET', '')
 N8N_API_KEY = os.environ.get('N8N_API_KEY', '')
 N8N_HELP_WEBHOOK_URL = os.environ.get('N8N_HELP_WEBHOOK_URL', '')  # Webhook URL for help requests
+
+# Celery Configuration
+CELERY_BROKER_URL = f"redis://{os.environ.get('REDIS_HOST', 'redis')}:{os.environ.get('REDIS_PORT', '6379')}/0"
+CELERY_RESULT_BACKEND = f"redis://{os.environ.get('REDIS_HOST', 'redis')}:{os.environ.get('REDIS_PORT', '6379')}/0"
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = True
+
+# Celery Task Configuration
+CELERY_TASK_DEFAULT_QUEUE = 'default'
+CELERY_TASK_DEFAULT_EXCHANGE = 'default'
+CELERY_TASK_DEFAULT_ROUTING_KEY = 'default'
+
+# Task routing
+CELERY_TASK_ROUTES = {
+    'apps.payments.tasks.process_dva_deposit': {'queue': 'high_priority'},
+    'apps.payments.tasks.verify_dva_transaction': {'queue': 'medium_priority'},
+    'apps.payments.tasks.sync_pending_dva_transactions': {'queue': 'low_priority'},
+}
+
+# Task retry configuration
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+# Celery Beat Configuration (for periodic tasks)
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
 # Paystack Settings
 # Get from environment (loaded by Docker Compose via env_file or dotenv for local)

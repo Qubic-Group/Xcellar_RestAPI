@@ -21,12 +21,17 @@ class PaystackWebhookHandler:
     
     def __init__(self):
         self.secret_key = settings.PAYSTACK_SECRET_KEY
+        # Use webhook secret if available, otherwise fall back to secret key
+        self.webhook_secret = settings.PAYSTACK_WEBHOOK_SECRET or self.secret_key
         if not self.secret_key:
             logger.warning("Paystack secret key not configured")
     
     def verify_signature(self, payload, signature):
         """
         Verify Paystack webhook signature.
+        
+        Paystack uses PAYSTACK_WEBHOOK_SECRET for signature verification.
+        Falls back to PAYSTACK_SECRET_KEY if webhook secret is not set.
         
         Args:
             payload: Raw request body
@@ -35,12 +40,12 @@ class PaystackWebhookHandler:
         Returns:
             bool: True if signature is valid
         """
-        if not self.secret_key:
-            logger.error("Cannot verify signature: Paystack secret key not configured")
+        if not self.webhook_secret:
+            logger.error("Cannot verify signature: Paystack webhook secret not configured")
             return False
         
         computed_signature = hmac.new(
-            self.secret_key.encode('utf-8'),
+            self.webhook_secret.encode('utf-8'),
             payload.encode('utf-8'),
             hashlib.sha512
         ).hexdigest()
@@ -50,69 +55,22 @@ class PaystackWebhookHandler:
     def handle_charge_success(self, event_data):
         """
         Handle charge.success webhook event.
+        Now dispatches to Celery task for async processing.
         
         Args:
             event_data: Webhook event data
         """
+        # Dispatch to Celery task for async processing
+        from apps.payments.tasks import process_dva_deposit
+        
         try:
-            data = event_data.get('data', {})
-            reference = data.get('reference')
-            amount = data.get('amount', 0) / 100  # Convert from kobo
-            customer_email = data.get('customer', {}).get('email')
-            channel = data.get('channel')
-            
-            # Find user by email
-            from django.contrib.auth import get_user_model
-            User = get_user_model()
-            
-            try:
-                user = User.objects.get(email=customer_email)
-            except User.DoesNotExist:
-                logger.error(f"User not found for email: {customer_email}")
-                return
-            
-            # Use database transaction to ensure atomicity
-            with db_transaction.atomic():
-                # Check if transaction already exists
-                transaction_obj, created = Transaction.objects.get_or_create(
-                    paystack_reference=reference,
-                    defaults={
-                        'user': user,
-                        'transaction_type': 'DEPOSIT',
-                        'status': 'SUCCESS',
-                        'payment_method': 'DVA' if channel == 'dedicated_nuban' else 'BANK_TRANSFER',
-                        'amount': Decimal(str(amount)),
-                        'fee': Decimal('0.00'),
-                        'net_amount': Decimal(str(amount)),
-                        'reference': reference,
-                        'paystack_transaction_id': str(data.get('id', '')),
-                        'paystack_reference': reference,
-                        'description': f'Deposit via {channel}',
-                        'metadata': data,
-                        'completed_at': timezone.now(),
-                    }
-                )
-                
-                if created:
-                    # Update user balance
-                    self._add_balance(user, Decimal(str(amount)), transaction_obj.reference)
-                    
-                    # Create notification
-                    Notification.objects.create(
-                        user=user,
-                        notification_type='DEPOSIT_RECEIVED',
-                        title='Deposit Received',
-                        message=f'You received ₦{amount:,.2f} via {channel}',
-                        related_transaction=transaction_obj,
-                        metadata={'channel': channel}
-                    )
-                    
-                    logger.info(f"Deposit processed: {reference} for user {user.email}")
-                else:
-                    logger.info(f"Transaction already exists: {reference}")
-                
+            # Enqueue task for async processing
+            task_result = process_dva_deposit.delay(event_data)
+            logger.info(f"Enqueued DVA deposit processing task: {task_result.id} for event: {event_data.get('data', {}).get('reference')}")
         except Exception as e:
-            logger.error(f"Error handling charge.success: {e}", exc_info=True)
+            logger.error(f"Error enqueueing DVA deposit task: {e}", exc_info=True)
+            # Fallback to synchronous processing if Celery fails
+            self._handle_charge_success_sync(event_data)
     
     def handle_transfer_success(self, event_data):
         """
@@ -317,6 +275,74 @@ class PaystackWebhookHandler:
             handler(event_data)
         else:
             logger.warning(f"Unhandled webhook event type: {event_type}")
+    
+    def _handle_charge_success_sync(self, event_data):
+        """
+        Fallback synchronous handler for charge.success webhook event.
+        Used when Celery is unavailable.
+        
+        Args:
+            event_data: Webhook event data
+        """
+        try:
+            data = event_data.get('data', {})
+            reference = data.get('reference')
+            amount = data.get('amount', 0) / 100  # Convert from kobo
+            customer_email = data.get('customer', {}).get('email')
+            channel = data.get('channel')
+            
+            # Find user by email
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            
+            try:
+                user = User.objects.get(email=customer_email)
+            except User.DoesNotExist:
+                logger.error(f"User not found for email: {customer_email}")
+                return
+            
+            # Use database transaction to ensure atomicity
+            with db_transaction.atomic():
+                # Check if transaction already exists
+                transaction_obj, created = Transaction.objects.get_or_create(
+                    paystack_reference=reference,
+                    defaults={
+                        'user': user,
+                        'transaction_type': 'DEPOSIT',
+                        'status': 'SUCCESS',
+                        'payment_method': 'DVA' if channel == 'dedicated_nuban' else 'BANK_TRANSFER',
+                        'amount': Decimal(str(amount)),
+                        'fee': Decimal('0.00'),
+                        'net_amount': Decimal(str(amount)),
+                        'reference': reference,
+                        'paystack_transaction_id': str(data.get('id', '')),
+                        'paystack_reference': reference,
+                        'description': f'Deposit via {channel}',
+                        'metadata': data,
+                        'completed_at': timezone.now(),
+                    }
+                )
+                
+                if created:
+                    # Update user balance
+                    self._add_balance(user, Decimal(str(amount)), transaction_obj.reference)
+                    
+                    # Create notification
+                    Notification.objects.create(
+                        user=user,
+                        notification_type='DEPOSIT_RECEIVED',
+                        title='Deposit Received',
+                        message=f'You received ₦{amount:,.2f} via {channel}',
+                        related_transaction=transaction_obj,
+                        metadata={'channel': channel}
+                    )
+                    
+                    logger.info(f"Deposit processed synchronously: {reference} for user {user.email}")
+                else:
+                    logger.info(f"Transaction already exists: {reference}")
+                
+        except Exception as e:
+            logger.error(f"Error handling charge.success synchronously: {e}", exc_info=True)
     
     def _add_balance(self, user, amount, reference):
         """

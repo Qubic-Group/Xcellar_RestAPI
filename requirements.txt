@@ -17,8 +17,12 @@ django-cors-headers==4.3.1
 
 # Rate Limiting
 django-ratelimit==4.1.0
-redis==5.0.1
+redis==4.6.0
 django-redis==5.4.0
+
+# Celery for async task processing
+celery[redis]==5.3.4
+django-celery-beat==2.5.0
 
 # Environment
 python-dotenv==1.0.0
