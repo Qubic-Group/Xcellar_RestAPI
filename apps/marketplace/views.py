@@ -94,7 +94,7 @@ def product_detail(request, product_id):
         product = Product.objects.get(id=product_id)
     except Product.DoesNotExist:
         return Response(
-            {'error': 'Product not found'},
+            {'error': 'Product not found. Please check the product ID and try again.'},
             status=status.HTTP_404_NOT_FOUND
         )
     
@@ -159,7 +159,7 @@ def remove_from_cart(request, item_id):
         )
     except CartItem.DoesNotExist:
         return Response(
-            {'error': 'Item not found'},
+            {'error': 'Cart item not found. The item may have been removed from your cart.'},
             status=status.HTTP_404_NOT_FOUND
         )
 
@@ -183,13 +183,13 @@ def checkout(request):
         cart = Cart.objects.get(user=request.user)
     except Cart.DoesNotExist:
         return Response(
-            {'error': 'Cart is empty'},
+            {'error': 'Your cart is empty. Please add items before checkout.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
     if cart.items.count() == 0:
         return Response(
-            {'error': 'Cart is empty'},
+            {'error': 'Your cart is empty. Please add items before checkout.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     

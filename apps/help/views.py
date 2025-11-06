@@ -143,7 +143,7 @@ def submit_help_request(request):
     except Exception as e:
         logger.error(f"Error creating help request: {e}")
         return Response(
-            {'error': 'Failed to submit help request. Please try again.'},
+            {'error': 'Unable to submit help request at this time. Please try again later or contact support directly.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

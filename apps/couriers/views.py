@@ -406,7 +406,7 @@ def update_driver_license(request):
     except Exception as e:
         logger.error(f"Failed to update driver license for courier {request.user.email}: {e}")
         return Response(
-            {'error': 'Failed to update driver license. Please try again.'},
+            {'error': 'Unable to update driver license information at this time. Please check your details and try again.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

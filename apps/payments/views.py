@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db import transaction as db_transaction
+from django.db import IntegrityError
 from django.db.models import Q, F
 from django.utils import timezone
 from django_ratelimit.decorators import ratelimit
@@ -158,7 +159,7 @@ def initialize_payment(request):
     
     if not amount:
         return Response(
-            {'error': 'Amount is required'},
+            {'error': 'Payment amount is required.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -168,7 +169,7 @@ def initialize_payment(request):
             raise ValueError('Amount must be greater than 0')
     except (ValueError, TypeError):
         return Response(
-            {'error': 'Invalid amount'},
+            {'error': 'Invalid payment amount. Amount must be greater than zero.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -182,7 +183,7 @@ def initialize_payment(request):
         if attempt == max_attempts - 1:
             logger.error(f"Failed to generate unique transaction reference after {max_attempts} attempts")
             return Response(
-                {'error': 'Failed to create transaction. Please try again.'},
+                {'error': 'Unable to process payment request. Please try again.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
@@ -220,15 +221,16 @@ def initialize_payment(request):
                 'reference': reference,
             }, status=status.HTTP_200_OK)
         else:
+            error_message = response.get('message', 'Unable to start payment. Please check your details and try again.')
             return Response(
-                {'error': response.get('message', 'Failed to initialize payment')},
+                {'error': error_message},
                 status=status.HTTP_400_BAD_REQUEST
             )
             
     except Exception as e:
-        logger.error(f"Error initializing payment: {e}", exc_info=True)
+        logger.error(f"Error initializing payment for user {request.user.email}: {e}", exc_info=True)
         return Response(
-            {'error': 'Failed to initialize payment'},
+            {'error': 'Unable to start payment at this time. Please try again later.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -270,7 +272,7 @@ def verify_payment(request):
     
     if not reference:
         return Response(
-            {'error': 'Reference is required'},
+            {'error': 'Transaction reference is required to verify payment.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -314,19 +316,19 @@ def verify_payment(request):
             }, status=status.HTTP_200_OK)
         else:
             return Response(
-                {'error': 'Payment verification failed'},
+                {'error': 'Payment verification failed. Please check your transaction reference and try again.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
             
     except Transaction.DoesNotExist:
         return Response(
-            {'error': 'Transaction not found'},
+            {'error': 'Transaction not found. Please check your transaction reference and try again.'},
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
         logger.error(f"Error verifying payment: {e}", exc_info=True)
         return Response(
-            {'error': 'Failed to verify payment'},
+            {'error': 'Unable to verify payment at this time. Please try again later.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -605,7 +607,7 @@ def create_dva(request):
     except Exception as e:
         logger.error(f"Error creating DVA: {e}", exc_info=True)
         return Response(
-            {'error': 'Failed to create DVA'},
+            {'error': 'Unable to create dedicated account at this time. Please try again later.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -642,7 +644,7 @@ def get_dva(request):
             if not customer_response.get('status') or 'data' not in customer_response:
                 logger.warning(f"Customer not found in Paystack for {request.user.email}. Response: {customer_response}")
                 return Response(
-                    {'error': 'DVA not found. Create one first.'},
+                    {'error': 'No dedicated account found. Please create a dedicated account first.'},
                     status=status.HTTP_404_NOT_FOUND
                 )
             
@@ -650,7 +652,7 @@ def get_dva(request):
             if not customer_code:
                 logger.warning(f"Customer code not found in Paystack response: {customer_response}")
                 return Response(
-                    {'error': 'DVA not found. Create one first.'},
+                    {'error': 'No dedicated account found. Please create a dedicated account first.'},
                     status=status.HTTP_404_NOT_FOUND
                 )
             
@@ -660,7 +662,7 @@ def get_dva(request):
             if not dva_list_response.get('status'):
                 logger.warning(f"Failed to fetch dedicated accounts from Paystack: {dva_list_response}")
                 return Response(
-                    {'error': 'DVA not found. Create one first.'},
+                    {'error': 'No dedicated account found. Please create a dedicated account first.'},
                     status=status.HTTP_404_NOT_FOUND
                 )
             
@@ -964,12 +966,32 @@ def create_transfer_recipient(request):
         )
         
         if not response.get('status'):
+            error_message = response.get('message', 'Failed to create recipient')
+            # Provide user-friendly error messages
+            if 'already exists' in error_message.lower() or 'duplicate' in error_message.lower():
+                error_message = 'Bank account details already exist. Please use a different account or check your existing recipients.'
             return Response(
-                {'error': response.get('message', 'Failed to create recipient')},
+                {'error': error_message},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         recipient_data = response['data']
+        
+        # Check if recipient already exists before creating
+        existing_recipient = TransferRecipient.objects.filter(
+            paystack_recipient_code=recipient_data['recipient_code']
+        ).first()
+        
+        if existing_recipient:
+            # Recipient already exists, return existing one
+            serializer_response = TransferRecipientSerializer(existing_recipient)
+            return Response(
+                {
+                    'message': 'Bank account details already exist',
+                    'recipient': serializer_response.data
+                },
+                status=status.HTTP_200_OK
+            )
         
         # Create recipient record
         recipient = TransferRecipient.objects.create(
@@ -986,10 +1008,31 @@ def create_transfer_recipient(request):
         serializer_response = TransferRecipientSerializer(recipient)
         return Response(serializer_response.data, status=status.HTTP_201_CREATED)
         
+    except IntegrityError as e:
+        # Handle database integrity errors (duplicate keys)
+        error_str = str(e).lower()
+        if 'paystack_recipient_code' in error_str or 'recipient_code' in error_str:
+            logger.warning(f"Duplicate recipient code for user {request.user.email}: {e}")
+            return Response(
+                {'error': 'Bank account details already exist. Please use a different account or check your existing recipients.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        elif 'account_number' in error_str or 'unique' in error_str:
+            logger.warning(f"Duplicate account number for user {request.user.email}: {e}")
+            return Response(
+                {'error': 'This bank account is already registered. Please use a different account.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        else:
+            logger.warning(f"Integrity error for user {request.user.email}: {e}")
+            return Response(
+                {'error': 'This information already exists. Please use different details.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
     except Exception as e:
-        logger.error(f"Error creating transfer recipient: {e}", exc_info=True)
+        logger.error(f"Unexpected error creating transfer recipient for user {request.user.email}: {e}", exc_info=True)
         return Response(
-            {'error': 'Failed to create transfer recipient'},
+            {'error': 'Unable to add bank account. Please check your details and try again.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -1055,7 +1098,7 @@ def create_transfer(request):
     balance = get_user_balance(request.user)
     if balance < amount:
         return Response(
-            {'error': 'Insufficient balance'},
+            {'error': 'Insufficient balance. Please add funds to your account before making a withdrawal.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -1069,7 +1112,7 @@ def create_transfer(request):
         if attempt == max_attempts - 1:
             logger.error(f"Failed to generate unique transaction reference after {max_attempts} attempts")
             return Response(
-                {'error': 'Failed to create transaction. Please try again.'},
+                {'error': 'Unable to process payment request. Please try again.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
@@ -1079,7 +1122,7 @@ def create_transfer(request):
             # Deduct balance immediately
             if not deduct_balance(request.user, amount, reference):
                 return Response(
-                    {'error': 'Insufficient balance'},
+                    {'error': 'Insufficient balance. Please add funds to your account before making a withdrawal.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -1180,7 +1223,7 @@ def create_transfer(request):
             pass
         
         return Response(
-            {'error': 'Failed to create transfer'},
+            {'error': 'Unable to process withdrawal at this time. Please try again later.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -1257,14 +1300,14 @@ def finalize_transfer(request):
             
         except Transaction.DoesNotExist:
             return Response(
-                {'error': 'Transaction not found'},
+                {'error': 'Transaction not found. Please check your transaction reference and try again.'},
                 status=status.HTTP_404_NOT_FOUND
             )
             
     except Exception as e:
         logger.error(f"Error finalizing transfer: {e}", exc_info=True)
         return Response(
-            {'error': 'Failed to finalize transfer'},
+            {'error': 'Unable to complete withdrawal at this time. Please try again later.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -1294,7 +1337,7 @@ def paystack_webhook(request):
     
     if not signature:
         return Response(
-            {'error': 'Missing signature'},
+            {'error': 'Webhook signature is missing. Request rejected for security.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -1308,7 +1351,7 @@ def paystack_webhook(request):
         if not handler.verify_signature(payload, signature):
             logger.warning("Invalid webhook signature")
             return Response(
-                {'error': 'Invalid signature'},
+                {'error': 'Invalid webhook signature. Request rejected for security.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -1319,7 +1362,7 @@ def paystack_webhook(request):
         
         if not event_type:
             return Response(
-                {'error': 'Missing event type'},
+                {'error': 'Webhook event type is missing. Unable to process webhook.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -1331,7 +1374,7 @@ def paystack_webhook(request):
     except Exception as e:
         logger.error(f"Error processing webhook: {e}", exc_info=True)
         return Response(
-            {'error': 'Failed to process webhook'},
+            {'error': 'Unable to process webhook event. Please contact support if this persists.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

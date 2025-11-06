@@ -100,7 +100,7 @@ def password_reset_request(request):
         # Log error but don't reveal it to user
         logger.error(f"Failed to process password reset request for {email}: {e}")
         return Response(
-            {'error': 'Failed to send email. Please try again later.'},
+            {'error': 'Unable to send password reset email at this time. Please try again later or contact support.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     
@@ -161,7 +161,7 @@ def password_reset_confirm(request):
         reset_token = PasswordResetToken.objects.get(token=token)
     except PasswordResetToken.DoesNotExist:
         return Response(
-            {'error': 'Invalid or expired reset token.'},
+            {'error': 'Invalid or expired password reset link. Please request a new password reset.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -169,12 +169,12 @@ def password_reset_confirm(request):
     if not reset_token.is_valid():
         if reset_token.is_used:
             return Response(
-                {'error': 'This reset token has already been used.'},
+                {'error': 'This password reset link has already been used. Please request a new password reset.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         elif reset_token.is_expired():
             return Response(
-                {'error': 'Reset token has expired. Please request a new one.'},
+                {'error': 'Password reset link has expired. Please request a new password reset link.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
     
@@ -190,7 +190,7 @@ def password_reset_confirm(request):
     except Exception as e:
         logger.error(f"Failed to reset password for user {reset_token.user.email}: {e}")
         return Response(
-            {'error': 'Failed to reset password. Please try again.'},
+            {'error': 'Unable to reset password at this time. Please check your details and try again.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     

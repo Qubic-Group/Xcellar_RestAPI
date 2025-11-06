@@ -130,7 +130,7 @@ class UserRegistrationSerializer(serializers.Serializer):
     
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError("Passwords don't match")
+            raise serializers.ValidationError("Passwords do not match. Please ensure both password fields are identical.")
         return attrs
     
     def create(self, validated_data):
@@ -158,7 +158,7 @@ class CourierRegistrationSerializer(serializers.Serializer):
     
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError("Passwords don't match")
+            raise serializers.ValidationError("Passwords do not match. Please ensure both password fields are identical.")
         return attrs
     
     def create(self, validated_data):
@@ -211,7 +211,7 @@ class PasswordChangeSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         if attrs['new_password'] != attrs['confirm_new_password']:
-            raise serializers.ValidationError("New passwords don't match")
+            raise serializers.ValidationError("New passwords do not match. Please ensure both new password fields are identical.")
         return attrs
 
 
@@ -249,13 +249,13 @@ class PhoneNumberUpdateSerializer(serializers.Serializer):
         # Check if another user already has this phone number
         if User.objects.filter(phone_number=phone_number).exclude(pk=user.pk).exists():
             raise serializers.ValidationError({
-                'phone_number': 'This phone number is already registered to another account.'
+                'phone_number': 'This phone number is already registered. Please use a different phone number or sign in with your existing account.'
             })
         
         # Check if user is trying to set the same phone number
         if user.phone_number == phone_number:
             raise serializers.ValidationError({
-                'phone_number': 'This is already your current phone number.'
+                'phone_number': 'This is already your current phone number. No changes needed.'
             })
         
         return attrs

@@ -164,14 +164,14 @@ def verify_otp(request):
     
     if not verification:
         return Response(
-            {'error': 'No active OTP found. Please request a new OTP.'},
+            {'error': 'No active verification code found. Please request a new verification code.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
     # Check if expired
     if verification.is_expired():
         return Response(
-            {'error': 'OTP code has expired. Please request a new one.'},
+            {'error': 'Verification code has expired. Please request a new verification code.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -179,7 +179,7 @@ def verify_otp(request):
     if not verification.can_attempt():
         if verification.attempts >= verification.max_attempts:
             return Response(
-                {'error': 'Maximum verification attempts exceeded. Please request a new OTP.'},
+                {'error': 'Too many verification attempts. Please request a new verification code and try again.'},
                 status=status.HTTP_429_TOO_MANY_REQUESTS
             )
     

@@ -395,7 +395,7 @@ def change_password(request):
     except Exception as e:
         logger.error(f"Failed to change password for user {request.user.email}: {e}")
         return Response(
-            {'error': 'Failed to change password. Please try again.'},
+            {'error': 'Unable to change password at this time. Please check your current password and try again.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -564,7 +564,7 @@ def update_phone_number(request):
     except Exception as e:
         logger.error(f"Failed to update phone number for user {request.user.email}: {e}")
         return Response(
-            {'error': 'Failed to update phone number. Please try again.'},
+            {'error': 'Unable to update phone number at this time. Please check the phone number format and try again.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -634,7 +634,7 @@ def update_profile(request):
                 profile = user.courier_profile
             else:
                 return Response(
-                    {'error': 'Invalid user type.'},
+                    {'error': 'Invalid user type. Please contact support if you believe this is an error.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -667,7 +667,7 @@ def update_profile(request):
     except Exception as e:
         logger.error(f"Failed to update profile for user {user.email}: {e}")
         return Response(
-            {'error': 'Failed to update profile. Please try again.'},
+            {'error': 'Unable to update profile at this time. Please check your details and try again.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -768,7 +768,7 @@ def logout(request):
                     # Verify token belongs to authenticated user
                     if token.get('user_id') != request.user.id:
                         return Response(
-                            {'error': 'Refresh token does not belong to authenticated user.'},
+                            {'error': 'The refresh token provided does not belong to your account. Please log in again.'},
                             status=status.HTTP_400_BAD_REQUEST
                         )
                     token.blacklist()
@@ -777,7 +777,7 @@ def logout(request):
                 except Exception as e:
                     logger.warning(f"Failed to blacklist token for user {request.user.email}: {e}")
                     return Response(
-                        {'error': 'Invalid refresh token provided.'},
+                        {'error': 'Invalid or expired refresh token. Please log in again to get a new token.'},
                         status=status.HTTP_400_BAD_REQUEST
                     )
             else:
@@ -801,7 +801,7 @@ def logout(request):
     except Exception as e:
         logger.error(f"Failed to logout user {request.user.email}: {e}")
         return Response(
-            {'error': 'Failed to logout. Please try again.'},
+            {'error': 'Unable to logout at this time. Please try again later.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

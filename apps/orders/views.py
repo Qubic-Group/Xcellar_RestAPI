@@ -65,19 +65,19 @@ def confirm_order(request, order_id):
         order = Order.objects.get(id=order_id, sender=request.user)
     except Order.DoesNotExist:
         return Response(
-            {'error': 'Order not found'},
+            {'error': 'Order not found. Please check the order ID and try again.'},
             status=status.HTTP_404_NOT_FOUND
         )
     
     if order.status != 'PENDING':
         return Response(
-            {'error': f'Order already {order.get_status_display()}'},
+            {'error': f'This order is already {order.get_status_display().lower()}.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
     if order.payment_status != 'PAID':
         return Response(
-            {'error': 'Order must be paid before confirmation'},
+            {'error': 'Order must be paid before it can be confirmed and sent to couriers.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -171,7 +171,7 @@ def order_detail(request, order_id):
         order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
         return Response(
-            {'error': 'Order not found'},
+            {'error': 'Order not found. Please check the order ID and try again.'},
             status=status.HTTP_404_NOT_FOUND
         )
     
@@ -179,12 +179,12 @@ def order_detail(request, order_id):
     user = request.user
     if user.user_type == 'USER' and order.sender != user:
         return Response(
-            {'error': 'Permission denied'},
+            {'error': 'You do not have permission to access this order.'},
             status=status.HTTP_403_FORBIDDEN
         )
     elif user.user_type == 'COURIER' and order.assigned_courier != user:
         return Response(
-            {'error': 'Permission denied'},
+            {'error': 'You do not have permission to access this order.'},
             status=status.HTTP_403_FORBIDDEN
         )
     
@@ -206,7 +206,7 @@ def track_order(request, order_id):
         order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
         return Response(
-            {'error': 'Order not found'},
+            {'error': 'Order not found. Please check the order ID and try again.'},
             status=status.HTTP_404_NOT_FOUND
         )
     
@@ -214,12 +214,12 @@ def track_order(request, order_id):
     user = request.user
     if user.user_type == 'USER' and order.sender != user:
         return Response(
-            {'error': 'Permission denied'},
+            {'error': 'You do not have permission to access this order.'},
             status=status.HTTP_403_FORBIDDEN
         )
     elif user.user_type == 'COURIER' and order.assigned_courier != user:
         return Response(
-            {'error': 'Permission denied'},
+            {'error': 'You do not have permission to access this order.'},
             status=status.HTTP_403_FORBIDDEN
         )
     
@@ -271,7 +271,7 @@ def accept_order(request, order_id):
         order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
         return Response(
-            {'error': 'Order not found'},
+            {'error': 'Order not found. Please check the order ID and try again.'},
             status=status.HTTP_404_NOT_FOUND
         )
     
@@ -283,14 +283,14 @@ def accept_order(request, order_id):
         # Check if order is available
         if order.status != 'AVAILABLE':
             return Response(
-                {'error': 'Order is not available'},
+                {'error': 'This order is no longer available for acceptance.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         # Check if already assigned
         if order.assigned_courier is not None:
             return Response(
-                {'error': 'Order already assigned to another courier'},
+                {'error': 'This order has already been assigned to another courier.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -324,7 +324,7 @@ def reject_order(request, order_id):
         order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
         return Response(
-            {'error': 'Order not found'},
+            {'error': 'Order not found. Please check the order ID and try again.'},
             status=status.HTTP_404_NOT_FOUND
         )
     
@@ -354,14 +354,14 @@ def update_order_status(request, order_id):
         order = Order.objects.get(id=order_id, assigned_courier=request.user)
     except Order.DoesNotExist:
         return Response(
-            {'error': 'Order not found'},
+            {'error': 'Order not found. Please check the order ID and try again.'},
             status=status.HTTP_404_NOT_FOUND
         )
     
     new_status = request.data.get('status')
     if not new_status:
         return Response(
-            {'error': 'Status is required'},
+            {'error': 'Order status is required to update the order.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -374,13 +374,13 @@ def update_order_status(request, order_id):
     
     if order.status not in valid_transitions:
         return Response(
-            {'error': f'Invalid status transition from {order.get_status_display()}'},
+            {'error': f'Cannot update order status from {order.get_status_display()} to the requested status.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
     if new_status not in valid_transitions[order.status]:
         return Response(
-            {'error': f'Cannot transition from {order.get_status_display()} to {new_status}'},
+            {'error': f'Invalid status update. Cannot change order from {order.get_status_display()} to {new_status}.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
