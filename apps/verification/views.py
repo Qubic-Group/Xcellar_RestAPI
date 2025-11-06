@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from apps.core.response import success_response, error_response, validation_error_response
 from django.utils import timezone
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import extend_schema, OpenApiExample
@@ -53,7 +54,7 @@ def send_otp(request):
     """
     serializer = SendOTPSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     phone_number = serializer.validated_data['phone_number']
     method = serializer.validated_data['method']
@@ -67,12 +68,10 @@ def send_otp(request):
     
     if recent_verification:
         remaining = cooldown_seconds - int((timezone.now() - recent_verification.created_at).total_seconds())
-        return Response(
-            {
-                'error': f'Please wait {remaining} seconds before requesting another OTP',
-                'cooldown_remaining': remaining
-            },
-            status=status.HTTP_429_TOO_MANY_REQUESTS
+        return error_response(
+            f'Please wait {remaining} seconds before requesting another OTP',
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            data={'cooldown_remaining': remaining}
         )
     
     expires_at = get_otp_expiry_time()
@@ -87,10 +86,7 @@ def send_otp(request):
     success, message, verification_sid = twilio_service.send_otp(phone_number, method)
     
     if not success:
-        return Response(
-            {'error': message},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response(message, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     # Create verification record for tracking (Twilio handles the actual code)
     PhoneVerification.objects.create(
@@ -101,13 +97,9 @@ def send_otp(request):
     )
     
     expiry_minutes = getattr(settings, 'OTP_EXPIRY_MINUTES', 5)
-    return Response(
-        {
-            'message': 'OTP sent successfully',
-            'expires_in': expiry_minutes * 60,
-            'method': method,
-        },
-        status=status.HTTP_200_OK
+    return success_response(
+        data={'expires_in': expiry_minutes * 60, 'method': method},
+        message='OTP sent successfully'
     )
 
 
@@ -150,7 +142,7 @@ def verify_otp(request):
     """
     serializer = VerifyOTPSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     phone_number = serializer.validated_data['phone_number']
     code = serializer.validated_data['code']
@@ -163,46 +155,32 @@ def verify_otp(request):
     ).order_by('-created_at').first()
     
     if not verification:
-        return Response(
-            {'error': 'No active verification code found. Please request a new verification code.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('No active verification code found. Please request a new verification code.', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Check if expired
     if verification.is_expired():
-        return Response(
-            {'error': 'Verification code has expired. Please request a new verification code.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('Verification code has expired. Please request a new verification code.', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Check attempts
     if not verification.can_attempt():
         if verification.attempts >= verification.max_attempts:
-            return Response(
-                {'error': 'Too many verification attempts. Please request a new verification code and try again.'},
-                status=status.HTTP_429_TOO_MANY_REQUESTS
-            )
+            return error_response('Too many verification attempts. Please request a new verification code and try again.', status_code=status.HTTP_429_TOO_MANY_REQUESTS)
     
     # Verify code using Twilio Verify API
     success, message = twilio_service.verify_otp(phone_number, code)
     
     if success:
         verification.mark_verified()
-        return Response(
-            {
-                'verified': True,
-                'message': 'Phone number verified successfully',
-            },
-            status=status.HTTP_200_OK
+        return success_response(
+            data={'verified': True},
+            message='Phone number verified successfully'
         )
     else:
         verification.increment_attempts()
         remaining_attempts = verification.max_attempts - verification.attempts
-        return Response(
-            {
-                'error': message,
-                'remaining_attempts': remaining_attempts,
-            },
-            status=status.HTTP_400_BAD_REQUEST
+        return error_response(
+            message,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            data={'remaining_attempts': remaining_attempts}
         )
 

@@ -5,6 +5,7 @@ from django.db import IntegrityError
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 import logging
+from .response import error_response, validation_error_response
 
 logger = logging.getLogger(__name__)
 
@@ -58,28 +59,24 @@ def get_user_friendly_error_message(exc):
 
 def custom_exception_handler(exc, context):
     """
-    Custom exception handler that returns user-friendly error responses.
+    Custom exception handler that returns user-friendly error responses in standardized format.
     """
     # Handle database integrity errors
     if isinstance(exc, IntegrityError):
         logger.warning(f"IntegrityError in {context.get('view', {}).__class__.__name__}: {exc}")
         user_message = get_user_friendly_error_message(exc)
-        return Response(
-            {
-                'error': user_message if isinstance(user_message, str) else user_message
-            },
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        if isinstance(user_message, str):
+            return error_response(user_message, status_code=status.HTTP_400_BAD_REQUEST)
+        else:
+            return error_response('A database error occurred', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Handle Django validation errors
     if isinstance(exc, DjangoValidationError):
         user_message = get_user_friendly_error_message(exc)
-        return Response(
-            {
-                'error': user_message if isinstance(user_message, str) else user_message
-            },
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        if isinstance(user_message, str):
+            return error_response(user_message, status_code=status.HTTP_400_BAD_REQUEST)
+        else:
+            return error_response('Validation error', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Use DRF's default exception handler
     response = exception_handler(exc, context)
@@ -88,18 +85,16 @@ def custom_exception_handler(exc, context):
         # Get user-friendly message
         user_message = get_user_friendly_error_message(exc)
         
-        # Format response consistently
+        # Format response consistently with standardized format
         if isinstance(user_message, (dict, list)):
-            # Already formatted by DRF
-            custom_response_data = {
-                'error': user_message
-            }
+            # For validation errors, use validation_error_response
+            if isinstance(exc, DRFValidationError):
+                return validation_error_response(user_message, message='Validation error')
+            else:
+                return error_response('An error occurred', status_code=response.status_code, data={'errors': user_message})
         else:
-            custom_response_data = {
-                'error': user_message
-            }
-        
-        response.data = custom_response_data
+            # Standard error response
+            return error_response(user_message, status_code=response.status_code)
 
     return response
 

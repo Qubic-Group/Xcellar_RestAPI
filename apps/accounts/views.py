@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from apps.core.response import success_response, error_response, created_response, validation_error_response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -109,23 +110,25 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             # Select user_profile for regular users (OneToOne relationship)
             user = User.objects.select_related('user_profile').get(pk=user.pk)
         elif user.user_type == 'COURIER':
-            # Select courier_profile (OneToOne) and prefetch vehicles (ForeignKey) for couriers
-            user = User.objects.select_related('courier_profile').prefetch_related('vehicles').get(pk=user.pk)
+            # Select courier_profile (OneToOne) and prefetch vehicles (ForeignKey) and driver_license (OneToOne) for couriers
+            user = User.objects.select_related('courier_profile', 'courier_profile__driver_license').prefetch_related('vehicles').get(pk=user.pk)
         
         # Call parent to get token response
         response = super().post(request, *args, **kwargs)
         
-        # Add user data to response
-        response.data = {
-            'message': 'Login successful',
-            'user': UserSerializer(user, context={'request': request}).data,
-            'tokens': {
-                'access': response.data['access'],
-                'refresh': response.data['refresh']
-            }
-        }
-        
-        return response
+        # Return standardized response
+        user_data = UserSerializer(user, context={'request': request}).data
+        return success_response(
+            data={
+                'user': user_data,
+                'tokens': {
+                    'access': response.data['access'],
+                    'refresh': response.data['refresh']
+                }
+            },
+            message='Login successful',
+            status_code=status.HTTP_200_OK
+        )
 
 
 class CustomTokenRefreshView(TokenRefreshView):
@@ -243,18 +246,18 @@ def register_user(request):
         access_token = str(refresh.access_token)
         refresh_token = str(refresh)
         
-        return Response(
-            {
-                'message': 'User registered successfully',
-                'user': UserSerializer(user, context={'request': request}).data,
+        user_data = UserSerializer(user, context={'request': request}).data
+        return created_response(
+            data={
+                'user': user_data,
                 'tokens': {
                     'access': access_token,
                     'refresh': refresh_token
                 }
             },
-            status=status.HTTP_201_CREATED
+            message='User registered successfully'
         )
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    return validation_error_response(serializer.errors, message='Validation error')
 
 
 @extend_schema(
@@ -321,18 +324,18 @@ def register_courier(request):
         access_token = str(refresh.access_token)
         refresh_token = str(refresh)
         
-        return Response(
-            {
-                'message': 'Courier registered successfully',
-                'user': UserSerializer(user, context={'request': request}).data,
+        user_data = UserSerializer(user, context={'request': request}).data
+        return created_response(
+            data={
+                'user': user_data,
                 'tokens': {
                     'access': access_token,
                     'refresh': refresh_token
                 }
             },
-            status=status.HTTP_201_CREATED
+            message='Courier registered successfully'
         )
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    return validation_error_response(serializer.errors, message='Validation error')
 
 
 @extend_schema(
@@ -374,7 +377,7 @@ def change_password(request):
     """
     serializer = PasswordChangeSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     new_password = serializer.validated_data['new_password']
     
@@ -386,17 +389,12 @@ def change_password(request):
             
         logger.info(f"Password changed successfully for user {user.email}")
         
-        return Response(
-            {
-                'message': 'Password changed successfully',
-            },
-            status=status.HTTP_200_OK
-        )
+        return success_response(message='Password changed successfully')
     except Exception as e:
         logger.error(f"Failed to change password for user {request.user.email}: {e}")
-        return Response(
-            {'error': 'Unable to change password at this time. Please check your current password and try again.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        return error_response(
+            'Unable to change password at this time. Please check your current password and try again.',
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
 
@@ -487,7 +485,7 @@ def user_profile(request):
     GET /api/v1/auth/profile/
     """
     serializer = UserSerializer(request.user, context={'request': request})
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data={'user': serializer.data}, message='Profile retrieved successfully')
 
 
 @extend_schema(
@@ -541,7 +539,7 @@ def update_phone_number(request):
     )
     
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     new_phone_number = serializer.validated_data['phone_number']
     
@@ -554,18 +552,15 @@ def update_phone_number(request):
             
         logger.info(f"Phone number updated for user {user.email}: {old_phone_number} -> {new_phone_number}")
         
-        return Response(
-            {
-                'message': 'Phone number updated successfully',
-                'phone_number': new_phone_number,
-            },
-            status=status.HTTP_200_OK
+        return success_response(
+            data={'phone_number': new_phone_number},
+            message='Phone number updated successfully'
         )
     except Exception as e:
         logger.error(f"Failed to update phone number for user {request.user.email}: {e}")
-        return Response(
-            {'error': 'Unable to update phone number at this time. Please check the phone number format and try again.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        return error_response(
+            'Unable to update phone number at this time. Please check the phone number format and try again.',
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
 
@@ -621,7 +616,7 @@ def update_profile(request):
     )
     
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     user = request.user
     
@@ -633,9 +628,9 @@ def update_profile(request):
             elif user.user_type == 'COURIER':
                 profile = user.courier_profile
             else:
-                return Response(
-                    {'error': 'Invalid user type. Please contact support if you believe this is an error.'},
-                    status=status.HTTP_400_BAD_REQUEST
+                return error_response(
+                    'Invalid user type. Please contact support if you believe this is an error.',
+                    status_code=status.HTTP_400_BAD_REQUEST
                 )
             
             # Update address if provided
@@ -656,19 +651,19 @@ def update_profile(request):
         # Return updated profile data
         user_serializer = UserSerializer(user, context={'request': request})
         
-        return Response(
-            {
-                'message': 'Profile updated successfully',
+        return success_response(
+            data={
+                'user': user_serializer.data,
                 'address': profile.address,
                 'profile_image_url': user_serializer.data.get('profile_image_url'),
             },
-            status=status.HTTP_200_OK
+            message='Profile updated successfully'
         )
     except Exception as e:
         logger.error(f"Failed to update profile for user {user.email}: {e}")
-        return Response(
-            {'error': 'Unable to update profile at this time. Please check your details and try again.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        return error_response(
+            'Unable to update profile at this time. Please check your details and try again.',
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
 
@@ -767,18 +762,18 @@ def logout(request):
                     token = RefreshToken(refresh_token)
                     # Verify token belongs to authenticated user
                     if token.get('user_id') != request.user.id:
-                        return Response(
-                            {'error': 'The refresh token provided does not belong to your account. Please log in again.'},
-                            status=status.HTTP_400_BAD_REQUEST
+                        return error_response(
+                            'The refresh token provided does not belong to your account. Please log in again.',
+                            status_code=status.HTTP_400_BAD_REQUEST
                         )
                     token.blacklist()
                     tokens_blacklisted = 1
                     logger.info(f"Blacklisted refresh token for user {request.user.email}")
                 except Exception as e:
                     logger.warning(f"Failed to blacklist token for user {request.user.email}: {e}")
-                    return Response(
-                        {'error': 'Invalid or expired refresh token. Please log in again to get a new token.'},
-                        status=status.HTTP_400_BAD_REQUEST
+                    return error_response(
+                        'Invalid or expired refresh token. Please log in again to get a new token.',
+                        status_code=status.HTTP_400_BAD_REQUEST
                     )
             else:
                 # No refresh token provided and blacklist_all=False
@@ -791,17 +786,14 @@ def logout(request):
                 
                 logger.info(f"Blacklisted all tokens ({tokens_blacklisted}) for user {request.user.email} (no refresh token provided)")
         
-        return Response(
-            {
-                'message': 'Successfully logged out',
-                'tokens_blacklisted': tokens_blacklisted,
-            },
-            status=status.HTTP_200_OK
+        return success_response(
+            data={'tokens_blacklisted': tokens_blacklisted},
+            message='Successfully logged out'
         )
     except Exception as e:
         logger.error(f"Failed to logout user {request.user.email}: {e}")
-        return Response(
-            {'error': 'Unable to logout at this time. Please try again later.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        return error_response(
+            'Unable to logout at this time. Please try again later.',
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

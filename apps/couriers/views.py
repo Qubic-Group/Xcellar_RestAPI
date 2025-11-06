@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from apps.core.response import success_response, error_response, validation_error_response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django_ratelimit.decorators import ratelimit
@@ -201,7 +202,7 @@ class VehicleViewSet(viewsets.ModelViewSet):
         vehicle.save()
         serializer = self.get_serializer(vehicle)
         logger.info(f"Vehicle activated: {vehicle.license_plate_number}")
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return success_response(data=serializer.data)
     
     @extend_schema(
         tags=['Couriers'],
@@ -222,7 +223,7 @@ class VehicleViewSet(viewsets.ModelViewSet):
         vehicle.save()
         serializer = self.get_serializer(vehicle)
         logger.info(f"Vehicle deactivated: {vehicle.license_plate_number}")
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return success_response(data=serializer.data)
 
 
 @extend_schema(
@@ -241,6 +242,10 @@ class VehicleViewSet(viewsets.ModelViewSet):
                     'issuing_authority': 'DMV',
                     'front_page_url': 'http://localhost:8000/media/licenses/documents/front/license_1.jpg',
                     'back_page_url': 'http://localhost:8000/media/licenses/documents/back/license_1.jpg',
+                    'vehicle_insurance': None,
+                    'vehicle_insurance_url': None,
+                    'vehicle_registration': None,
+                    'vehicle_registration_url': None,
                     'is_expired': False,
                 }
             }
@@ -259,6 +264,10 @@ class VehicleViewSet(viewsets.ModelViewSet):
                 'issuing_authority': 'DMV',
                 'front_page_url': 'http://localhost:8000/media/licenses/documents/front/license_1.jpg',
                 'back_page_url': 'http://localhost:8000/media/licenses/documents/back/license_1.jpg',
+                'vehicle_insurance': None,
+                'vehicle_insurance_url': None,
+                'vehicle_registration': None,
+                'vehicle_registration_url': None,
                 'is_expired': False,
             },
             response_only=True,
@@ -277,26 +286,20 @@ def driver_license(request):
         courier_profile = request.user.courier_profile
         license_obj = courier_profile.driver_license
         serializer = DriverLicenseSerializer(license_obj, context={'request': request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return success_response(data=serializer.data)
     except AttributeError:
         # License not created yet (OneToOne relationship doesn't exist)
         # Django raises RelatedObjectDoesNotExist which is a subclass of AttributeError
-        return Response(
-            {
-                'message': 'Driver license not registered yet. Use PUT/PATCH to create.',
-                'license': None
-            },
-            status=status.HTTP_200_OK
+        return success_response(
+            data={'license': None},
+            message='Driver license not registered yet. Use PUT/PATCH to create.'
         )
     except Exception as e:
         # Fallback exception handling
         logger.error(f"Error retrieving driver license for courier {request.user.email}: {e}")
-        return Response(
-            {
-                'message': 'Driver license not registered yet. Use PUT/PATCH to create.',
-                'license': None
-            },
-            status=status.HTTP_200_OK
+        return success_response(
+            data={'license': None},
+            message='Driver license not registered yet. Use PUT/PATCH to create.'
         )
 
 
@@ -310,6 +313,7 @@ def driver_license(request):
             'description': 'Driver license created/updated successfully',
             'examples': {
                 'application/json': {
+                    'status': 200,
                     'message': 'Driver license updated successfully',
                     'license': {
                         'id': 1,
@@ -317,6 +321,13 @@ def driver_license(request):
                         'issue_date': '2020-01-15',
                         'expiry_date': '2025-01-15',
                         'issuing_authority': 'DMV',
+                        'front_page_url': 'http://localhost:8000/media/licenses/documents/front/license_1.jpg',
+                        'back_page_url': 'http://localhost:8000/media/licenses/documents/back/license_1.jpg',
+                        'vehicle_insurance': None,
+                        'vehicle_insurance_url': None,
+                        'vehicle_registration': None,
+                        'vehicle_registration_url': None,
+                        'is_expired': False,
                     }
                 }
             }
@@ -335,8 +346,32 @@ def driver_license(request):
                 'issuing_authority': 'DMV',
                 'front_page': '<file>',
                 'back_page': '<file>',
+                'vehicle_insurance': '<file>',
+                'vehicle_registration': '<file>',
             },
             request_only=True,
+        ),
+        OpenApiExample(
+            'Update Driver License Response',
+            value={
+                'status': 200,
+                'message': 'Driver license updated successfully',
+                'license': {
+                    'id': 1,
+                    'license_number': 'DL123456',
+                    'issue_date': '2020-01-15',
+                    'expiry_date': '2025-01-15',
+                    'issuing_authority': 'DMV',
+                    'front_page_url': 'http://localhost:8000/media/licenses/documents/front/license_1.jpg',
+                    'back_page_url': 'http://localhost:8000/media/licenses/documents/back/license_1.jpg',
+                    'vehicle_insurance': None,
+                    'vehicle_insurance_url': None,
+                    'vehicle_registration': None,
+                    'vehicle_registration_url': None,
+                    'is_expired': False,
+                }
+            },
+            response_only=True,
         ),
     ],
 )
@@ -372,17 +407,21 @@ def update_driver_license(request):
         )
     
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     try:
         with transaction.atomic():
             # Handle file deletions if replacing (save old file references before saving)
             old_front_page = None
             old_back_page = None
+            old_vehicle_insurance = None
+            old_vehicle_registration = None
             
             if not is_create and license_obj:
                 old_front_page = license_obj.front_page
                 old_back_page = license_obj.back_page
+                old_vehicle_insurance = license_obj.vehicle_insurance
+                old_vehicle_registration = license_obj.vehicle_registration
             
             # Save license, automatically assign to courier_profile
             license_obj = serializer.save(courier_profile=courier_profile)
@@ -392,21 +431,59 @@ def update_driver_license(request):
                 old_front_page.delete(save=False)
             if 'back_page' in serializer.validated_data and old_back_page:
                 old_back_page.delete(save=False)
+            if 'vehicle_insurance' in serializer.validated_data and old_vehicle_insurance:
+                old_vehicle_insurance.delete(save=False)
+            if 'vehicle_registration' in serializer.validated_data and old_vehicle_registration:
+                old_vehicle_registration.delete(save=False)
             
         logger.info(f"Driver license {'created' if is_create else 'updated'} for courier {request.user.email}")
         
         response_serializer = DriverLicenseSerializer(license_obj, context={'request': request})
-        return Response(
-            {
-                'message': f'Driver license {"created" if is_create else "updated"} successfully',
-                'license': response_serializer.data
-            },
-            status=status.HTTP_200_OK
+        return success_response(
+            data={'license': response_serializer.data},
+            message=f'Driver license {"created" if is_create else "updated"} successfully'
         )
     except Exception as e:
         logger.error(f"Failed to update driver license for courier {request.user.email}: {e}")
-        return Response(
-            {'error': 'Unable to update driver license information at this time. Please check your details and try again.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Unable to update driver license information at this time. Please check your details and try again.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@extend_schema(
+    tags=['Couriers'],
+    summary='Courier Dashboard',
+    description='Get courier dashboard information. Available only for couriers (COURIER type).',
+    responses={
+        200: {
+            'description': 'Courier dashboard data',
+            'examples': {
+                'application/json': {
+                    'message': 'Courier dashboard',
+                    'courier': 'courier@example.com',
+                }
+            }
+        },
+        401: {'description': 'Authentication required'},
+        403: {'description': 'Forbidden - Only COURIER type allowed'},
+        429: {'description': 'Rate limit exceeded (100 requests per hour)'},
+    },
+    examples=[
+        OpenApiExample(
+            'Courier Dashboard Response',
+            value={
+                'message': 'Courier dashboard',
+                'courier': 'courier@example.com',
+            },
+            response_only=True,
+        ),
+    ],
+)
+@api_view(['GET'])
+@permission_classes([IsCourier])
+@ratelimit(key='user', rate='100/h', method='GET')
+def courier_dashboard(request):
+    """
+    Courier dashboard endpoint.
+    GET /api/v1/couriers/dashboard/
+    """
+    return success_response(data={'courier': request.user.email}, message='Courier dashboard')
 

@@ -143,6 +143,20 @@ class DriverLicense(AbstractBaseModel):
         validators=[validate_document_file],
         help_text='Driver license back page (PDF, DOC, DOCX, or Image)'
     )
+    vehicle_insurance = models.FileField(
+        upload_to='licenses/documents/insurance/',
+        blank=True,
+        null=True,
+        validators=[validate_document_file],
+        help_text='Vehicle insurance document (PDF, DOC, DOCX, or Image)'
+    )
+    vehicle_registration = models.FileField(
+        upload_to='licenses/documents/registration/',
+        blank=True,
+        null=True,
+        validators=[validate_document_file],
+        help_text='Vehicle registration document (PDF, DOC, DOCX, or Image)'
+    )
     
     class Meta:
         db_table = 'driver_licenses'

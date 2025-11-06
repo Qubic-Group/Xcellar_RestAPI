@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from apps.core.response import success_response, error_response, created_response, validation_error_response
 from django.db import transaction
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import extend_schema, OpenApiExample
@@ -82,7 +83,7 @@ def submit_help_request(request):
     serializer = HelpRequestSerializer(data=request.data, context={'request': request})
     
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     try:
         with transaction.atomic():
@@ -132,20 +133,13 @@ def submit_help_request(request):
             else:
                 logger.warning("N8N_HELP_WEBHOOK_URL not configured. Help request saved but n8n workflow not triggered.")
         
-        return Response(
-            {
-                'message': 'Help request submitted successfully',
-                'request_id': help_request.id,
-                'status': help_request.status,
-            },
-            status=status.HTTP_201_CREATED
+        return created_response(
+            data={'request_id': help_request.id, 'status': help_request.status},
+            message='Help request submitted successfully'
         )
     except Exception as e:
         logger.error(f"Error creating help request: {e}")
-        return Response(
-            {'error': 'Unable to submit help request at this time. Please try again later or contact support directly.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Unable to submit help request at this time. Please try again later or contact support directly.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(
@@ -182,8 +176,8 @@ def my_help_requests(request):
     """
     help_requests = HelpRequest.objects.filter(user=request.user).order_by('-created_at')[:50]
     
-    return Response(
-        {
+    return success_response(
+        data={
             'requests': [
                 {
                     'id': req.id,
@@ -202,6 +196,6 @@ def my_help_requests(request):
             ],
             'count': help_requests.count(),
         },
-        status=status.HTTP_200_OK
+        message='Help requests retrieved successfully'
     )
 

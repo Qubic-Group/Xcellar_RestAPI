@@ -58,7 +58,7 @@ def password_reset_request(request):
     """
     serializer = PasswordResetRequestSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     email = serializer.validated_data['email'].lower().strip()
     
@@ -67,12 +67,9 @@ def password_reset_request(request):
         user = User.objects.get(email=email)
     except User.DoesNotExist:
         # Don't reveal if email exists for security
-        return Response(
-            {
-                'message': 'If an account exists with this email, a password reset link has been sent.',
-                'email': _mask_email(email)
-            },
-            status=status.HTTP_200_OK
+        return success_response(
+            data={'email': _mask_email(email)},
+            message='If an account exists with this email, a password reset link has been sent.'
         )
     
     # Generate reset token with transaction to ensure atomicity
@@ -99,17 +96,11 @@ def password_reset_request(request):
     except Exception as e:
         # Log error but don't reveal it to user
         logger.error(f"Failed to process password reset request for {email}: {e}")
-        return Response(
-            {'error': 'Unable to send password reset email at this time. Please try again later or contact support.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Unable to send password reset email at this time. Please try again later or contact support.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    return Response(
-        {
-            'message': 'Password reset email sent successfully',
-            'email': _mask_email(email)
-        },
-        status=status.HTTP_200_OK
+    return success_response(
+        data={'email': _mask_email(email)},
+        message='Password reset email sent successfully'
     )
 
 
@@ -151,7 +142,7 @@ def password_reset_confirm(request):
     """
     serializer = PasswordResetConfirmSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     token = serializer.validated_data['token']
     password = serializer.validated_data['password']
@@ -160,23 +151,14 @@ def password_reset_confirm(request):
     try:
         reset_token = PasswordResetToken.objects.get(token=token)
     except PasswordResetToken.DoesNotExist:
-        return Response(
-            {'error': 'Invalid or expired password reset link. Please request a new password reset.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('Invalid or expired password reset link. Please request a new password reset.', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Validate token
     if not reset_token.is_valid():
         if reset_token.is_used:
-            return Response(
-                {'error': 'This password reset link has already been used. Please request a new password reset.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response('This password reset link has already been used. Please request a new password reset.', status_code=status.HTTP_400_BAD_REQUEST)
         elif reset_token.is_expired():
-            return Response(
-                {'error': 'Password reset link has expired. Please request a new password reset link.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response('Password reset link has expired. Please request a new password reset link.', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Reset password with transaction
     try:
@@ -189,17 +171,9 @@ def password_reset_confirm(request):
             reset_token.mark_as_used()
     except Exception as e:
         logger.error(f"Failed to reset password for user {reset_token.user.email}: {e}")
-        return Response(
-            {'error': 'Unable to reset password at this time. Please check your details and try again.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Unable to reset password at this time. Please check your details and try again.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    return Response(
-        {
-            'message': 'Password reset successfully. You can now login with your new password.',
-        },
-        status=status.HTTP_200_OK
-    )
+    return success_response(message='Password reset successfully. You can now login with your new password.')
 
 
 def _mask_email(email):

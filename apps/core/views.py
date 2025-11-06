@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from apps.core.response import success_response, error_response, validation_error_response
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
@@ -86,21 +87,14 @@ def list_banks(request):
         # Sort banks by name for better UX
         formatted_banks.sort(key=lambda x: x['name'].lower())
         
-        return Response({
-            'status': True,
-            'banks': formatted_banks,
-            'count': len(formatted_banks),
-        }, status=status.HTTP_200_OK)
+        return success_response(
+            data={'banks': formatted_banks, 'count': len(formatted_banks)},
+            message='Banks retrieved successfully'
+        )
         
     except Exception as e:
         logger.error(f"Error fetching banks: {e}", exc_info=True)
-        return Response(
-            {
-                'status': False,
-                'message': 'Failed to fetch banks list',
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Failed to fetch banks list', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(
@@ -207,57 +201,36 @@ def verify_account(request):
     bank_name = request.query_params.get('bank_name')
     
     if not account_number:
-        return Response(
-            {
-                'status': False,
-                'message': 'account_number is required',
-            },
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('account_number is required', status_code=status.HTTP_400_BAD_REQUEST)
     
     # If bank_code is not provided, try to resolve from bank_name
     if not bank_code:
         if not bank_name:
-            return Response(
-                {
-                    'status': False,
-                    'message': 'Either bank_code or bank_name is required',
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response('Either bank_code or bank_name is required', status_code=status.HTTP_400_BAD_REQUEST)
         
         # Resolve bank_code from bank_name
         verification_service = PaystackAccountVerification()
         bank_code = verification_service.get_bank_code_by_name(bank_name)
         
         if not bank_code:
-            return Response(
-                {
-                    'status': False,
-                    'message': f'Bank "{bank_name}" not found. Please use the /api/v1/core/banks/ endpoint to get available banks.',
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response(f'Bank "{bank_name}" not found. Please use the /api/v1/core/banks/ endpoint to get available banks.', status_code=status.HTTP_400_BAD_REQUEST)
     
     try:
         verification_service = PaystackAccountVerification()
         response = verification_service.resolve_account(account_number, bank_code)
         
         if response.get('status'):
-            return Response(response, status=status.HTTP_200_OK)
-        else:
-            return Response(
-                response,
-                status=status.HTTP_400_BAD_REQUEST
+            # Paystack returns response with status: true and data
+            return success_response(
+                data=response.get('data', {}),
+                message='Account verified successfully'
             )
+        else:
+            # Paystack returns error response with status: false
+            error_msg = response.get('message', 'Failed to verify account')
+            return error_response(error_msg, status_code=status.HTTP_400_BAD_REQUEST)
             
     except Exception as e:
         logger.error(f"Error verifying account: {e}", exc_info=True)
-        return Response(
-            {
-                'status': False,
-                'message': 'Failed to verify account. Please try again.',
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Failed to verify account. Please try again.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

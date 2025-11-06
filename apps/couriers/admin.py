@@ -124,6 +124,13 @@ class DriverLicenseAdmin(admin.ModelAdmin):
             ),
             'description': 'Upload driver license documents. Allowed formats: PDF, DOC, DOCX, Images (JPG, PNG, etc.)'
         }),
+        ('Vehicle Documents (Optional)', {
+            'fields': (
+                'vehicle_insurance',
+                'vehicle_registration',
+            ),
+            'description': 'Upload vehicle insurance and registration documents. Allowed formats: PDF, DOC, DOCX, Images (JPG, PNG, etc.)'
+        }),
         ('Status', {
             'fields': ('is_active',)
         }),
@@ -157,6 +164,8 @@ class DriverLicenseAdmin(admin.ModelAdmin):
         docs = [
             bool(obj.front_page),
             bool(obj.back_page),
+            bool(obj.vehicle_insurance),
+            bool(obj.vehicle_registration),
         ]
         return 'Yes' if any(docs) else 'No'
     has_documents.short_description = 'Has Documents'

@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from apps.core.response import success_response, error_response, created_response, validation_error_response, not_found_response
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from django.utils import timezone
 from django.db import transaction as db_transaction
@@ -44,11 +45,8 @@ def create_order(request):
             notes='Order created and awaiting confirmation'
         )
         
-        return Response(
-            OrderDetailSerializer(order).data,
-            status=status.HTTP_201_CREATED
-        )
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return created_response(data=OrderDetailSerializer(order).data, message='Order created successfully')
+    return validation_error_response(serializer.errors, message='Validation error')
 
 
 @extend_schema(
@@ -64,22 +62,13 @@ def confirm_order(request, order_id):
     try:
         order = Order.objects.get(id=order_id, sender=request.user)
     except Order.DoesNotExist:
-        return Response(
-            {'error': 'Order not found. Please check the order ID and try again.'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return not_found_response('Order not found. Please check the order ID and try again.')
     
     if order.status != 'PENDING':
-        return Response(
-            {'error': f'This order is already {order.get_status_display().lower()}.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response(f'This order is already {order.get_status_display().lower()}.', status_code=status.HTTP_400_BAD_REQUEST)
     
     if order.payment_status != 'PAID':
-        return Response(
-            {'error': 'Order must be paid before it can be confirmed and sent to couriers.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('Order must be paid before it can be confirmed and sent to couriers.', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Update order status to available
     order.status = 'AVAILABLE'
@@ -94,11 +83,7 @@ def confirm_order(request, order_id):
     
     # Assign to couriers (simple random selection)
     assign_order_to_couriers(order)
-    
-    return Response(
-        OrderDetailSerializer(order).data,
-        status=status.HTTP_200_OK
-    )
+    return success_response(data=OrderDetailSerializer(order).data, message='Order confirmed successfully')
 
 
 def assign_order_to_couriers(order):
@@ -154,7 +139,7 @@ def list_orders(request):
         queryset = queryset.filter(status=status_filter)
     
     serializer = OrderListSerializer(queryset, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data=serializer.data)
 
 
 @extend_schema(
@@ -170,26 +155,17 @@ def order_detail(request, order_id):
     try:
         order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
-        return Response(
-            {'error': 'Order not found. Please check the order ID and try again.'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return not_found_response('Order not found. Please check the order ID and try again.')
     
     # Check permission
     user = request.user
     if user.user_type == 'USER' and order.sender != user:
-        return Response(
-            {'error': 'You do not have permission to access this order.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+        return error_response('You do not have permission to access this order.', status_code=status.HTTP_403_FORBIDDEN)
     elif user.user_type == 'COURIER' and order.assigned_courier != user:
-        return Response(
-            {'error': 'You do not have permission to access this order.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+        return error_response('You do not have permission to access this order.', status_code=status.HTTP_403_FORBIDDEN)
     
     serializer = OrderDetailSerializer(order)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data=serializer.data)
 
 
 @extend_schema(
@@ -205,27 +181,18 @@ def track_order(request, order_id):
     try:
         order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
-        return Response(
-            {'error': 'Order not found. Please check the order ID and try again.'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return not_found_response('Order not found. Please check the order ID and try again.')
     
     # Check permission
     user = request.user
     if user.user_type == 'USER' and order.sender != user:
-        return Response(
-            {'error': 'You do not have permission to access this order.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+        return error_response('You do not have permission to access this order.', status_code=status.HTTP_403_FORBIDDEN)
     elif user.user_type == 'COURIER' and order.assigned_courier != user:
-        return Response(
-            {'error': 'You do not have permission to access this order.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+        return error_response('You do not have permission to access this order.', status_code=status.HTTP_403_FORBIDDEN)
     
     tracking = order.tracking_history.all()
     serializer = TrackingHistorySerializer(tracking, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data=serializer.data)
 
 
 @extend_schema(
@@ -254,7 +221,7 @@ def available_orders(request):
     ]
     
     serializer = OrderListSerializer(available_orders_list, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data=serializer.data)
 
 
 @extend_schema(
@@ -270,10 +237,7 @@ def accept_order(request, order_id):
     try:
         order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
-        return Response(
-            {'error': 'Order not found. Please check the order ID and try again.'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return not_found_response('Order not found. Please check the order ID and try again.')
     
     # Atomic acceptance with select_for_update to prevent race conditions
     with db_transaction.atomic():
@@ -282,17 +246,11 @@ def accept_order(request, order_id):
         
         # Check if order is available
         if order.status != 'AVAILABLE':
-            return Response(
-                {'error': 'This order is no longer available for acceptance.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response('This order is no longer available for acceptance.', status_code=status.HTTP_400_BAD_REQUEST)
         
         # Check if already assigned
         if order.assigned_courier is not None:
-            return Response(
-                {'error': 'This order has already been assigned to another courier.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response('This order has already been assigned to another courier.', status_code=status.HTTP_400_BAD_REQUEST)
         
         # Assign to this courier
         order.assigned_courier = request.user
@@ -307,7 +265,7 @@ def accept_order(request, order_id):
         )
     
     serializer = OrderDetailSerializer(order)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data=serializer.data)
 
 
 @extend_schema(
@@ -323,20 +281,14 @@ def reject_order(request, order_id):
     try:
         order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
-        return Response(
-            {'error': 'Order not found. Please check the order ID and try again.'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return not_found_response('Order not found. Please check the order ID and try again.')
     
     # Remove courier from offered list
     if request.user.id in order.offered_to_couriers:
         order.offered_to_couriers.remove(request.user.id)
         order.save()
     
-    return Response(
-        {'message': 'Order rejected successfully'},
-        status=status.HTTP_200_OK
-    )
+    return success_response(message='Order rejected successfully')
 
 
 @extend_schema(
@@ -353,17 +305,11 @@ def update_order_status(request, order_id):
     try:
         order = Order.objects.get(id=order_id, assigned_courier=request.user)
     except Order.DoesNotExist:
-        return Response(
-            {'error': 'Order not found. Please check the order ID and try again.'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return not_found_response('Order not found. Please check the order ID and try again.')
     
     new_status = request.data.get('status')
     if not new_status:
-        return Response(
-            {'error': 'Order status is required to update the order.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('Order status is required to update the order.', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Validate status transition
     valid_transitions = {
@@ -373,16 +319,10 @@ def update_order_status(request, order_id):
     }
     
     if order.status not in valid_transitions:
-        return Response(
-            {'error': f'Cannot update order status from {order.get_status_display()} to the requested status.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response(f'Cannot update order status from {order.get_status_display()} to the requested status.', status_code=status.HTTP_400_BAD_REQUEST)
     
     if new_status not in valid_transitions[order.status]:
-        return Response(
-            {'error': f'Invalid status update. Cannot change order from {order.get_status_display()} to {new_status}.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response(f'Invalid status update. Cannot change order from {order.get_status_display()} to {new_status}.', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Update status
     order.status = new_status
@@ -405,5 +345,5 @@ def update_order_status(request, order_id):
     )
     
     serializer = OrderDetailSerializer(order)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data=serializer.data)
 

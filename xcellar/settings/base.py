@@ -146,9 +146,16 @@ REST_FRAMEWORK = {
 
 # JWT Settings
 from datetime import timedelta
+# Calculate 6 months in days (approximately 180 days)
+# Access token: 6 months (180 days)
+# Refresh token: 1 year (365 days) - allows users to refresh for a full year
+# Users can still logout to invalidate tokens
+JWT_ACCESS_TOKEN_DAYS = int(os.environ.get('JWT_ACCESS_TOKEN_DAYS', 180))  # 6 months default
+JWT_REFRESH_TOKEN_DAYS = int(os.environ.get('JWT_REFRESH_TOKEN_DAYS', 365))  # 1 year default
+
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=int(os.environ.get('JWT_ACCESS_TOKEN_LIFETIME', 60))),
-    'REFRESH_TOKEN_LIFETIME': timedelta(minutes=int(os.environ.get('JWT_REFRESH_TOKEN_LIFETIME', 1440))),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=JWT_ACCESS_TOKEN_DAYS),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=JWT_REFRESH_TOKEN_DAYS),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,

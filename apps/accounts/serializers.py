@@ -23,6 +23,7 @@ class UserSerializer(serializers.ModelSerializer):
     isPaymentInfoSet = serializers.SerializerMethodField()
     isBvnSet = serializers.SerializerMethodField()
     isApproved = serializers.SerializerMethodField()
+    isDriverLicenseSet = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -30,7 +31,7 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'email', 'phone_number', 'user_type', 'date_joined', 
             'full_name', 'address', 'profile_image', 'profile_image_url',
             'isAddressSet', 'isDeliveryOptionSet', 'isPaymentInfoSet', 
-            'isBvnSet', 'isApproved'
+            'isBvnSet', 'isApproved', 'isDriverLicenseSet'
         ]
         read_only_fields = ['id', 'email', 'phone_number', 'user_type', 'date_joined']
     
@@ -44,6 +45,7 @@ class UserSerializer(serializers.ModelSerializer):
             data.pop('isPaymentInfoSet', None)
             data.pop('isBvnSet', None)
             data.pop('isApproved', None)
+            data.pop('isDriverLicenseSet', None)
         
         # Remove user-specific fields for couriers
         if instance.user_type != 'USER':
@@ -117,6 +119,19 @@ class UserSerializer(serializers.ModelSerializer):
         """Check if courier is approved"""
         if obj.user_type == 'COURIER' and hasattr(obj, 'courier_profile'):
             return obj.courier_profile.approval_status == 'APPROVED'
+        return None
+    
+    def get_isDriverLicenseSet(self, obj):
+        """Check if courier has driver license added"""
+        if obj.user_type == 'COURIER' and hasattr(obj, 'courier_profile'):
+            try:
+                # Check if driver license exists (OneToOne relationship)
+                # Accessing the related object will raise AttributeError if it doesn't exist
+                driver_license = obj.courier_profile.driver_license
+                return True
+            except AttributeError:
+                # RelatedObjectDoesNotExist is a subclass of AttributeError
+                return False
         return None
 
 

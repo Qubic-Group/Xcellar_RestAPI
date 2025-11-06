@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
+from apps.core.response import success_response, error_response
 from django_ratelimit.decorators import ratelimit
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter
@@ -96,11 +97,7 @@ def n8n_webhook(request):
         
         # Handle different actions from n8n
         if action == 'test':
-            return Response({
-                'status': 'success',
-                'message': 'Webhook received successfully',
-                'data': data
-            }, status=status.HTTP_200_OK)
+            return success_response(data=data, message='Webhook received successfully')
         
         # Add more action handlers here as needed
         # Example:
@@ -108,18 +105,11 @@ def n8n_webhook(request):
         #     # Process order creation from n8n
         #     pass
         
-        return Response({
-            'status': 'success',
-            'message': f'Action {action} received',
-            'data': data
-        }, status=status.HTTP_200_OK)
+        return success_response(data=data, message=f'Action {action} received')
         
     except Exception as e:
         logger.error(f"Error processing n8n webhook: {e}")
-        return Response({
-            'status': 'error',
-            'message': str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
+        return error_response(str(e), status_code=status.HTTP_400_BAD_REQUEST)
 
 
 @extend_schema(
@@ -172,18 +162,21 @@ def workflow_logs(request):
     GET /api/v1/automation/workflows/
     """
     logs = WorkflowLog.objects.all()[:50]  # Limit to last 50 logs
-    return Response({
-        'logs': [
-            {
-                'id': log.id,
-                'workflow_id': log.workflow_id,
-                'workflow_name': log.workflow_name,
-                'status': log.status,
-                'executed_at': log.executed_at
-            }
-            for log in logs
-        ]
-    }, status=status.HTTP_200_OK)
+    return success_response(
+        data={
+            'logs': [
+                {
+                    'id': log.id,
+                    'workflow_id': log.workflow_id,
+                    'workflow_name': log.workflow_name,
+                    'status': log.status,
+                    'executed_at': log.executed_at
+                }
+                for log in logs
+            ]
+        },
+        message='Workflow logs retrieved successfully'
+    )
 
 
 @extend_schema(
@@ -236,16 +229,19 @@ def automation_tasks(request):
     GET /api/v1/automation/tasks/
     """
     tasks = AutomationTask.objects.all()[:50]  # Limit to last 50 tasks
-    return Response({
-        'tasks': [
-            {
-                'id': task.id,
-                'task_type': task.task_type,
-                'workflow_id': task.workflow_id,
-                'status': task.status,
-                'created_at': task.created_at
-            }
-            for task in tasks
-        ]
-    }, status=status.HTTP_200_OK)
+    return success_response(
+        data={
+            'tasks': [
+                {
+                    'id': task.id,
+                    'task_type': task.task_type,
+                    'workflow_id': task.workflow_id,
+                    'status': task.status,
+                    'created_at': task.created_at
+                }
+                for task in tasks
+            ]
+        },
+        message='Automation tasks retrieved successfully'
+    )
 

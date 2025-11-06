@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
+from apps.core.response import success_response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
@@ -163,5 +164,5 @@ class FAQViewSet(viewsets.ReadOnlyModelViewSet):
                 'count': count,
             })
         
-        return Response({'categories': categories}, status=status.HTTP_200_OK)
+        return success_response(data={'categories': categories}, message='FAQ categories retrieved successfully')
 

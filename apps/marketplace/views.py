@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from apps.core.response import success_response, error_response, created_response, validation_error_response, not_found_response
 from drf_spectacular.utils import extend_schema
 from django.db import transaction as db_transaction
 from decimal import Decimal
@@ -31,7 +32,7 @@ def list_categories(request):
     """List all product categories"""
     categories = Category.objects.filter(is_active=True).order_by('name')
     serializer = CategorySerializer(categories, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data=serializer.data)
 
 
 @extend_schema(
@@ -46,7 +47,7 @@ def list_stores(request):
     """List all active stores"""
     stores = Store.objects.filter(is_active=True).order_by('name')
     serializer = StoreSerializer(stores, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data=serializer.data)
 
 
 @extend_schema(
@@ -77,7 +78,7 @@ def list_products(request):
         queryset = queryset.filter(is_featured=True)
     
     serializer = ProductSerializer(queryset, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data=serializer.data)
 
 
 @extend_schema(
@@ -93,13 +94,10 @@ def product_detail(request, product_id):
     try:
         product = Product.objects.get(id=product_id)
     except Product.DoesNotExist:
-        return Response(
-            {'error': 'Product not found. Please check the product ID and try again.'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return not_found_response('Product not found. Please check the product ID and try again.')
     
     serializer = ProductSerializer(product)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data=serializer.data)
 
 
 @extend_schema(
@@ -114,7 +112,7 @@ def get_cart(request):
     """Get user's shopping cart"""
     cart, created = Cart.objects.get_or_create(user=request.user)
     serializer = CartSerializer(cart)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data=serializer.data)
 
 
 @extend_schema(
@@ -135,9 +133,9 @@ def add_to_cart(request):
         
         # Return updated cart
         cart_serializer = CartSerializer(cart)
-        return Response(cart_serializer.data, status=status.HTTP_200_OK)
+        return success_response(data=cart_serializer.data, message='Item added to cart successfully')
     
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    return validation_error_response(serializer.errors, message='Validation error')
 
 
 @extend_schema(
@@ -153,15 +151,9 @@ def remove_from_cart(request, item_id):
     try:
         cart_item = CartItem.objects.get(id=item_id, cart__user=request.user)
         cart_item.delete()
-        return Response(
-            {'message': 'Item removed from cart'},
-            status=status.HTTP_200_OK
-        )
+        return success_response(message='Item removed from cart')
     except CartItem.DoesNotExist:
-        return Response(
-            {'error': 'Cart item not found. The item may have been removed from your cart.'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return not_found_response('Cart item not found. The item may have been removed from your cart.')
 
 
 @extend_schema(
@@ -176,22 +168,16 @@ def checkout(request):
     """Checkout cart and create order"""
     serializer = CheckoutSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     # Get user's cart
     try:
         cart = Cart.objects.get(user=request.user)
     except Cart.DoesNotExist:
-        return Response(
-            {'error': 'Your cart is empty. Please add items before checkout.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('Your cart is empty. Please add items before checkout.', status_code=status.HTTP_400_BAD_REQUEST)
     
     if cart.items.count() == 0:
-        return Response(
-            {'error': 'Your cart is empty. Please add items before checkout.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('Your cart is empty. Please add items before checkout.', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Create order with atomic transaction
     with db_transaction.atomic():
@@ -230,12 +216,8 @@ def checkout(request):
         # Clear cart
         cart.items.all().delete()
     
-    return Response(
-        {
-            'message': 'Order created successfully',
-            'order_id': order.id,
-            'order_number': order.order_number
-        },
-        status=status.HTTP_201_CREATED
+    return created_response(
+        data={'order_id': order.id, 'order_number': order.order_number},
+        message='Order created successfully'
     )
 

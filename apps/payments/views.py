@@ -2,6 +2,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from apps.core.response import success_response, error_response, created_response, validation_error_response, not_found_response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db import transaction as db_transaction
 from django.db import IntegrityError
@@ -114,10 +115,10 @@ def add_balance(user, amount, reference):
 def get_balance(request):
     """Get user balance"""
     balance = get_user_balance(request.user)
-    return Response({
-        'balance': str(balance),
-        'currency': 'NGN',
-    }, status=status.HTTP_200_OK)
+    return success_response(
+        data={'balance': str(balance), 'currency': 'NGN'},
+        message='Balance retrieved successfully'
+    )
 
 
 @extend_schema(
@@ -158,20 +159,14 @@ def initialize_payment(request):
     callback_url = request.data.get('callback_url')
     
     if not amount:
-        return Response(
-            {'error': 'Payment amount is required.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('Payment amount is required.', status_code=status.HTTP_400_BAD_REQUEST)
     
     try:
         amount_decimal = Decimal(str(amount))
         if amount_decimal <= 0:
             raise ValueError('Amount must be greater than 0')
     except (ValueError, TypeError):
-        return Response(
-            {'error': 'Invalid payment amount. Amount must be greater than zero.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('Invalid payment amount. Amount must be greater than zero.', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Generate unique reference (ensure uniqueness)
     max_attempts = 10
@@ -182,10 +177,7 @@ def initialize_payment(request):
             break
         if attempt == max_attempts - 1:
             logger.error(f"Failed to generate unique transaction reference after {max_attempts} attempts")
-            return Response(
-                {'error': 'Unable to process payment request. Please try again.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_response('Unable to process payment request. Please try again.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     try:
         paystack_client = PaystackClient()
@@ -215,24 +207,21 @@ def initialize_payment(request):
                 description='Payment initialization',
             )
             
-            return Response({
-                'authorization_url': response['data']['authorization_url'],
-                'access_code': response['data']['access_code'],
-                'reference': reference,
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data={
+                    'authorization_url': response['data']['authorization_url'],
+                    'access_code': response['data']['access_code'],
+                    'reference': reference,
+                },
+                message='Payment initialized successfully'
+            )
         else:
             error_message = response.get('message', 'Unable to start payment. Please check your details and try again.')
-            return Response(
-                {'error': error_message},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response(error_message, status_code=status.HTTP_400_BAD_REQUEST)
             
     except Exception as e:
         logger.error(f"Error initializing payment for user {request.user.email}: {e}", exc_info=True)
-        return Response(
-            {'error': 'Unable to start payment at this time. Please try again later.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Unable to start payment at this time. Please try again later.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(
@@ -271,10 +260,7 @@ def verify_payment(request):
     reference = request.query_params.get('reference')
     
     if not reference:
-        return Response(
-            {'error': 'Transaction reference is required to verify payment.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('Transaction reference is required to verify payment.', status_code=status.HTTP_400_BAD_REQUEST)
     
     try:
         # Find transaction
@@ -309,28 +295,22 @@ def verify_payment(request):
                     related_transaction=transaction_obj,
                 )
             
-            return Response({
-                'status': 'success',
-                'amount': str(amount),
-                'reference': reference,
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response(
-                {'error': 'Payment verification failed. Please check your transaction reference and try again.'},
-                status=status.HTTP_400_BAD_REQUEST
+            return success_response(
+                data={
+                    'status': 'success',
+                    'amount': str(amount),
+                    'reference': reference,
+                },
+                message='Payment verified successfully'
             )
+        else:
+            return error_response('Payment verification failed. Please check your transaction reference and try again.', status_code=status.HTTP_400_BAD_REQUEST)
             
     except Transaction.DoesNotExist:
-        return Response(
-            {'error': 'Transaction not found. Please check your transaction reference and try again.'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return not_found_response('Transaction not found. Please check your transaction reference and try again.')
     except Exception as e:
         logger.error(f"Error verifying payment: {e}", exc_info=True)
-        return Response(
-            {'error': 'Unable to verify payment at this time. Please try again later.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Unable to verify payment at this time. Please try again later.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(
@@ -366,10 +346,10 @@ def create_dva(request):
         if hasattr(request.user, 'dedicated_virtual_account'):
             dva = request.user.dedicated_virtual_account
             serializer = DedicatedVirtualAccountSerializer(dva)
-            return Response({
-                'message': 'DVA already exists',
-                'dva': serializer.data,
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data={'dva': serializer.data},
+                message='DVA already exists'
+            )
         
         # Step 2: Get or create Paystack customer and check for existing DVA
         paystack_client = PaystackClient()
@@ -398,26 +378,17 @@ def create_dva(request):
             if not customer_response.get('status'):
                 error_message = customer_response.get('message', 'Failed to create customer')
                 logger.error(f"Failed to create Paystack customer: {error_message}. Response: {customer_response}")
-                return Response(
-                    {'error': error_message},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return error_response(error_message, status_code=status.HTTP_400_BAD_REQUEST)
         
         # Validate customer response has data
         if 'data' not in customer_response:
             logger.error(f"Invalid Paystack customer response structure: {customer_response}")
-            return Response(
-                {'error': 'Invalid response from Paystack. Please try again.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_response('Invalid response from Paystack. Please try again.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         customer_code = customer_response['data'].get('customer_code')
         if not customer_code:
             logger.error(f"Customer code not found in Paystack response: {customer_response}")
-            return Response(
-                {'error': 'Failed to get customer code from Paystack'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_response('Failed to get customer code from Paystack', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         # Step 3: Check if DVA already exists in Paystack for this customer
         logger.info(f"Checking for existing DVA for customer {customer_code}...")
@@ -469,10 +440,10 @@ def create_dva(request):
                         )
                     
                     serializer = DedicatedVirtualAccountSerializer(dva)
-                    return Response({
-                        'message': 'DVA already exists and has been synced',
-                        'dva': serializer.data,
-                    }, status=status.HTTP_200_OK)
+                    return success_response(
+                        data={'dva': serializer.data},
+                        message='DVA already exists and has been synced'
+                    )
         
         # Step 4: Create new DVA (only if none exists)
         logger.info(f"No existing DVA found. Creating new DVA for customer {customer_code}...")
@@ -494,10 +465,7 @@ def create_dva(request):
         if not dva_response.get('status'):
             error_message = dva_response.get('message', 'Failed to assign DVA')
             logger.error(f"Failed to assign DVA: {error_message}. Response: {dva_response}")
-            return Response(
-                {'error': error_message},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response(error_message, status_code=status.HTTP_400_BAD_REQUEST)
         
         # Paystack single-step DVA assignment can be asynchronous
         # Check if DVA was created immediately or is in progress
@@ -559,22 +527,19 @@ def create_dva(request):
                             )
                         
                         serializer = DedicatedVirtualAccountSerializer(dva)
-                        return Response(serializer.data, status=status.HTTP_201_CREATED)
+                        return created_response(data=serializer.data, message='Dedicated account created successfully')
             
             # If still not found, return accepted status (webhook will update later)
             logger.info(f"DVA assignment in progress. Will be synced via webhook.")
-            return Response(
-                {'message': 'DVA creation in progress. You will be notified when ready.'},
-                status=status.HTTP_202_ACCEPTED
+            return success_response(
+                message='DVA creation in progress. You will be notified when ready.',
+                status_code=status.HTTP_202_ACCEPTED
             )
         
         # DVA was created successfully (synchronous response)
         if not dedicated_account or not dedicated_account.get('account_number'):
             logger.error(f"Invalid DVA response structure: {dva_response}")
-            return Response(
-                {'error': 'Invalid DVA response from Paystack'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_response('Invalid DVA response from Paystack', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         # Save DVA to database
         dva, created = DedicatedVirtualAccount.objects.update_or_create(
@@ -602,14 +567,11 @@ def create_dva(request):
             )
         
         serializer = DedicatedVirtualAccountSerializer(dva)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return created_response(data=serializer.data, message='Dedicated account created successfully')
         
     except Exception as e:
         logger.error(f"Error creating DVA: {e}", exc_info=True)
-        return Response(
-            {'error': 'Unable to create dedicated account at this time. Please try again later.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Unable to create dedicated account at this time. Please try again later.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(
@@ -630,7 +592,7 @@ def get_dva(request):
     try:
         dva = request.user.dedicated_virtual_account
         serializer = DedicatedVirtualAccountSerializer(dva)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return success_response(data=serializer.data, message='Dedicated account retrieved successfully')
     except AttributeError:
         # DVA not found locally, try to sync from Paystack
         logger.info(f"DVA not found locally for user {request.user.email}. Attempting to sync from Paystack...")
@@ -643,28 +605,19 @@ def get_dva(request):
             
             if not customer_response.get('status') or 'data' not in customer_response:
                 logger.warning(f"Customer not found in Paystack for {request.user.email}. Response: {customer_response}")
-                return Response(
-                    {'error': 'No dedicated account found. Please create a dedicated account first.'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+                return not_found_response('No dedicated account found. Please create a dedicated account first.')
             
             customer_code = customer_response['data'].get('customer_code')
             if not customer_code:
                 logger.warning(f"Customer code not found in Paystack response: {customer_response}")
-                return Response(
-                    {'error': 'No dedicated account found. Please create a dedicated account first.'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+                return not_found_response('No dedicated account found. Please create a dedicated account first.')
             
             # Get dedicated accounts from Paystack
             dva_list_response = paystack_client.get_dedicated_accounts(customer_code=customer_code)
             
             if not dva_list_response.get('status'):
                 logger.warning(f"Failed to fetch dedicated accounts from Paystack: {dva_list_response}")
-                return Response(
-                    {'error': 'No dedicated account found. Please create a dedicated account first.'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+                return not_found_response('No dedicated account found. Please create a dedicated account first.')
             
             if dva_list_response.get('data'):
                 dedicated_accounts = dva_list_response['data']
@@ -716,21 +669,15 @@ def get_dva(request):
                                 )
                             
                             serializer = DedicatedVirtualAccountSerializer(dva)
-                            return Response(serializer.data, status=status.HTTP_200_OK)
+                            return success_response(data=serializer.data, message='Dedicated account retrieved successfully')
             
             # No DVA found in Paystack either
             logger.warning(f"No dedicated accounts found in Paystack for customer {customer_code}. Response: {dva_list_response}")
-            return Response(
-                {'error': 'DVA not found. Create one first.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return not_found_response('No dedicated account found. Please create a dedicated account first.')
             
         except Exception as e:
             logger.error(f"Error syncing DVA from Paystack: {e}", exc_info=True)
-            return Response(
-                {'error': 'DVA not found. Create one first.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return not_found_response('No dedicated account found. Please create a dedicated account first.')
 
 
 class TransactionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -892,10 +839,10 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             })
         
         serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            'unread_count': unread_count,
-            'results': serializer.data,
-        })
+        return success_response(
+            data={'unread_count': unread_count, 'results': serializer.data},
+            message='Notifications retrieved successfully'
+        )
     
     @extend_schema(
         tags=['Payments'],
@@ -911,7 +858,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             notification.read_at = timezone.now()
             notification.save()
         serializer = self.get_serializer(notification)
-        return Response(serializer.data)
+        return success_response(data=serializer.data, message='Notification retrieved successfully')
     
     @extend_schema(
         tags=['Payments'],
@@ -928,10 +875,10 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             is_read=True,
             read_at=timezone.now()
         )
-        return Response({
-            'message': f'{updated} notifications marked as read',
-            'updated_count': updated,
-        })
+        return success_response(
+            data={'updated_count': updated},
+            message=f'{updated} notifications marked as read'
+        )
 
 
 @extend_schema(
@@ -953,7 +900,7 @@ def create_transfer_recipient(request):
     serializer = CreateTransferRecipientSerializer(data=request.data)
     
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     try:
         paystack_client = PaystackClient()
@@ -970,10 +917,7 @@ def create_transfer_recipient(request):
             # Provide user-friendly error messages
             if 'already exists' in error_message.lower() or 'duplicate' in error_message.lower():
                 error_message = 'Bank account details already exist. Please use a different account or check your existing recipients.'
-            return Response(
-                {'error': error_message},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response(error_message, status_code=status.HTTP_400_BAD_REQUEST)
         
         recipient_data = response['data']
         
@@ -985,12 +929,9 @@ def create_transfer_recipient(request):
         if existing_recipient:
             # Recipient already exists, return existing one
             serializer_response = TransferRecipientSerializer(existing_recipient)
-            return Response(
-                {
-                    'message': 'Bank account details already exist',
-                    'recipient': serializer_response.data
-                },
-                status=status.HTTP_200_OK
+            return success_response(
+                data={'recipient': serializer_response.data},
+                message='Bank account details already exist'
             )
         
         # Create recipient record
@@ -1006,35 +947,23 @@ def create_transfer_recipient(request):
         )
         
         serializer_response = TransferRecipientSerializer(recipient)
-        return Response(serializer_response.data, status=status.HTTP_201_CREATED)
+        return created_response(data=serializer_response.data, message='Bank account added successfully')
         
     except IntegrityError as e:
         # Handle database integrity errors (duplicate keys)
         error_str = str(e).lower()
         if 'paystack_recipient_code' in error_str or 'recipient_code' in error_str:
             logger.warning(f"Duplicate recipient code for user {request.user.email}: {e}")
-            return Response(
-                {'error': 'Bank account details already exist. Please use a different account or check your existing recipients.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response('Bank account details already exist. Please use a different account or check your existing recipients.', status_code=status.HTTP_400_BAD_REQUEST)
         elif 'account_number' in error_str or 'unique' in error_str:
             logger.warning(f"Duplicate account number for user {request.user.email}: {e}")
-            return Response(
-                {'error': 'This bank account is already registered. Please use a different account.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response('This bank account is already registered. Please use a different account.', status_code=status.HTTP_400_BAD_REQUEST)
         else:
             logger.warning(f"Integrity error for user {request.user.email}: {e}")
-            return Response(
-                {'error': 'This information already exists. Please use different details.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response('This information already exists. Please use different details.', status_code=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
         logger.error(f"Unexpected error creating transfer recipient for user {request.user.email}: {e}", exc_info=True)
-        return Response(
-            {'error': 'Unable to add bank account. Please check your details and try again.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Unable to add bank account. Please check your details and try again.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(
@@ -1057,7 +986,7 @@ def list_transfer_recipients(request):
     ).order_by('-created_at')
     
     serializer = TransferRecipientSerializer(recipients, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return success_response(data={'recipients': serializer.data}, message='Recipients retrieved successfully')
 
 
 @extend_schema(
@@ -1089,7 +1018,7 @@ def create_transfer(request):
     serializer = CreateTransferSerializer(data=request.data)
     
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     amount = serializer.validated_data['amount']
     recipient_code = serializer.validated_data['recipient_code']
@@ -1097,10 +1026,7 @@ def create_transfer(request):
     # Check balance
     balance = get_user_balance(request.user)
     if balance < amount:
-        return Response(
-            {'error': 'Insufficient balance. Please add funds to your account before making a withdrawal.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('Insufficient balance. Please add funds to your account before making a withdrawal.', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Generate unique reference (ensure uniqueness)
     max_attempts = 10
@@ -1111,20 +1037,14 @@ def create_transfer(request):
             break
         if attempt == max_attempts - 1:
             logger.error(f"Failed to generate unique transaction reference after {max_attempts} attempts")
-            return Response(
-                {'error': 'Unable to process payment request. Please try again.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_response('Unable to process payment request. Please try again.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     try:
         # Use database transaction to ensure atomicity
         with db_transaction.atomic():
             # Deduct balance immediately
             if not deduct_balance(request.user, amount, reference):
-                return Response(
-                    {'error': 'Insufficient balance. Please add funds to your account before making a withdrawal.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return error_response('Insufficient balance. Please add funds to your account before making a withdrawal.', status_code=status.HTTP_400_BAD_REQUEST)
             
             # Create pending transaction
             transaction_obj = Transaction.objects.create(
@@ -1156,10 +1076,7 @@ def create_transfer(request):
                 transaction_obj.status = 'FAILED'
                 transaction_obj.save()
                 
-                return Response(
-                    {'error': response.get('message', 'Failed to create transfer')},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return error_response(response.get('message', 'Failed to create transfer'), status_code=status.HTTP_400_BAD_REQUEST)
             
             transfer_data = response['data']
             
@@ -1184,13 +1101,15 @@ def create_transfer(request):
                     related_transaction=transaction_obj,
                 )
                 
-                return Response({
-                    'message': 'Transfer created. OTP required.',
-                    'transfer_code': transfer_data.get('transfer_code', ''),
-                    'reference': reference,
-                    'status': 'processing',
-                    'otp_required': True,
-                }, status=status.HTTP_200_OK)
+                return success_response(
+                    data={
+                        'transfer_code': transfer_data.get('transfer_code', ''),
+                        'reference': reference,
+                        'status': 'processing',
+                        'otp_required': True,
+                    },
+                    message='Transfer created. OTP required.'
+                )
             else:
                 transaction_obj.status = 'SUCCESS'
                 transaction_obj.completed_at = timezone.now()
@@ -1205,13 +1124,15 @@ def create_transfer(request):
                     related_transaction=transaction_obj,
                 )
                 
-                return Response({
-                    'message': 'Transfer created successfully',
-                    'transfer_code': transfer_data.get('transfer_code', ''),
-                    'reference': reference,
-                    'status': 'success',
-                    'otp_required': False,
-                }, status=status.HTTP_200_OK)
+                return success_response(
+                    data={
+                        'transfer_code': transfer_data.get('transfer_code', ''),
+                        'reference': reference,
+                        'status': 'success',
+                        'otp_required': False,
+                    },
+                    message='Transfer created successfully'
+                )
             
     except Exception as e:
         logger.error(f"Error creating transfer: {e}", exc_info=True)
@@ -1222,10 +1143,7 @@ def create_transfer(request):
         except:
             pass
         
-        return Response(
-            {'error': 'Unable to process withdrawal at this time. Please try again later.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Unable to process withdrawal at this time. Please try again later.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(
@@ -1255,7 +1173,7 @@ def finalize_transfer(request):
     serializer = FinalizeTransferSerializer(data=request.data)
     
     if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return validation_error_response(serializer.errors, message='Validation error')
     
     transfer_code = serializer.validated_data['transfer_code']
     otp = serializer.validated_data['otp']
@@ -1265,10 +1183,7 @@ def finalize_transfer(request):
         response = paystack_client.finalize_transfer(transfer_code, otp)
         
         if not response.get('status'):
-            return Response(
-                {'error': response.get('message', 'Failed to finalize transfer')},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response(response.get('message', 'Failed to finalize transfer'), status_code=status.HTTP_400_BAD_REQUEST)
         
         # Find and update transaction
         transfer_data = response['data']
@@ -1293,23 +1208,17 @@ def finalize_transfer(request):
                 related_transaction=transaction_obj,
             )
             
-            return Response({
-                'message': 'Transfer finalized successfully',
-                'status': 'success',
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data={'status': 'success'},
+                message='Transfer finalized successfully'
+            )
             
         except Transaction.DoesNotExist:
-            return Response(
-                {'error': 'Transaction not found. Please check your transaction reference and try again.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return not_found_response('Transaction not found. Please check your transaction reference and try again.')
             
     except Exception as e:
         logger.error(f"Error finalizing transfer: {e}", exc_info=True)
-        return Response(
-            {'error': 'Unable to complete withdrawal at this time. Please try again later.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Unable to complete withdrawal at this time. Please try again later.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(
@@ -1336,10 +1245,7 @@ def paystack_webhook(request):
     signature = request.headers.get('X-Paystack-Signature', '')
     
     if not signature:
-        return Response(
-            {'error': 'Webhook signature is missing. Request rejected for security.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return error_response('Webhook signature is missing. Request rejected for security.', status_code=status.HTTP_400_BAD_REQUEST)
     
     # Get raw body
     payload = request.body.decode('utf-8')
@@ -1350,10 +1256,7 @@ def paystack_webhook(request):
         # Verify signature
         if not handler.verify_signature(payload, signature):
             logger.warning("Invalid webhook signature")
-            return Response(
-                {'error': 'Invalid webhook signature. Request rejected for security.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response('Invalid webhook signature. Request rejected for security.', status_code=status.HTTP_400_BAD_REQUEST)
         
         # Parse event data
         import json
@@ -1361,20 +1264,14 @@ def paystack_webhook(request):
         event_type = event_data.get('event')
         
         if not event_type:
-            return Response(
-                {'error': 'Webhook event type is missing. Unable to process webhook.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response('Webhook event type is missing. Unable to process webhook.', status_code=status.HTTP_400_BAD_REQUEST)
         
         # Process webhook
         handler.process_webhook(event_type, event_data)
         
-        return Response({'status': 'success'}, status=status.HTTP_200_OK)
+        return success_response(message='Webhook processed successfully')
         
     except Exception as e:
         logger.error(f"Error processing webhook: {e}", exc_info=True)
-        return Response(
-            {'error': 'Unable to process webhook event. Please contact support if this persists.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_response('Unable to process webhook event. Please contact support if this persists.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

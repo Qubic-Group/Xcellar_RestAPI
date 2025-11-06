@@ -149,6 +149,8 @@ class DriverLicenseSerializer(serializers.ModelSerializer):
     # URL fields for read operations
     front_page_url = serializers.SerializerMethodField()
     back_page_url = serializers.SerializerMethodField()
+    vehicle_insurance_url = serializers.SerializerMethodField()
+    vehicle_registration_url = serializers.SerializerMethodField()
     is_expired = serializers.SerializerMethodField()
     
     class Meta:
@@ -166,6 +168,10 @@ class DriverLicenseSerializer(serializers.ModelSerializer):
             'front_page_url',
             'back_page',
             'back_page_url',
+            'vehicle_insurance',
+            'vehicle_insurance_url',
+            'vehicle_registration',
+            'vehicle_registration_url',
             'is_expired',
             'created_at',
             'updated_at',
@@ -190,6 +196,24 @@ class DriverLicenseSerializer(serializers.ModelSerializer):
             return obj.back_page.url
         return None
     
+    def get_vehicle_insurance_url(self, obj):
+        """Get full URL for vehicle insurance"""
+        if obj.vehicle_insurance:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.vehicle_insurance.url)
+            return obj.vehicle_insurance.url
+        return None
+    
+    def get_vehicle_registration_url(self, obj):
+        """Get full URL for vehicle registration"""
+        if obj.vehicle_registration:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.vehicle_registration.url)
+            return obj.vehicle_registration.url
+        return None
+    
     def get_is_expired(self, obj):
         """Get license expiry status"""
         return obj.is_expired()
@@ -204,6 +228,18 @@ class DriverLicenseSerializer(serializers.ModelSerializer):
         """Validate back page file"""
         if value:
             return self._validate_file(value, 'back_page')
+        return value
+    
+    def validate_vehicle_insurance(self, value):
+        """Validate vehicle insurance file"""
+        if value:
+            return self._validate_file(value, 'vehicle_insurance')
+        return value
+    
+    def validate_vehicle_registration(self, value):
+        """Validate vehicle registration file"""
+        if value:
+            return self._validate_file(value, 'vehicle_registration')
         return value
     
     def validate_expiry_date(self, value):
