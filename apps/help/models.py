@@ -6,7 +6,7 @@ from apps.core.models import AbstractBaseModel
 class HelpRequest(AbstractBaseModel):
     """
     Help/Support request model.
-    Users can submit help requests which are processed via n8n workflows.
+    Users can submit help requests for support.
     """
     CATEGORY_CHOICES = [
         ('GENERAL', 'General Inquiry'),

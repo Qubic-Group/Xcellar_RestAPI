@@ -6,6 +6,9 @@ from apps.core.response import success_response, error_response, created_respons
 from drf_spectacular.utils import extend_schema
 from django.db import transaction as db_transaction
 from decimal import Decimal
+import logging
+
+logger = logging.getLogger(__name__)
 
 from apps.marketplace.models import Category, Store, Product, Cart, CartItem
 from apps.marketplace.serializers import (
@@ -32,7 +35,7 @@ def list_categories(request):
     """List all product categories"""
     categories = Category.objects.filter(is_active=True).order_by('name')
     serializer = CategorySerializer(categories, many=True)
-    return success_response(data=serializer.data)
+    return success_response(data={'categories': serializer.data})
 
 
 @extend_schema(
@@ -47,7 +50,7 @@ def list_stores(request):
     """List all active stores"""
     stores = Store.objects.filter(is_active=True).order_by('name')
     serializer = StoreSerializer(stores, many=True)
-    return success_response(data=serializer.data)
+    return success_response(data={'stores': serializer.data})
 
 
 @extend_schema(
@@ -78,7 +81,7 @@ def list_products(request):
         queryset = queryset.filter(is_featured=True)
     
     serializer = ProductSerializer(queryset, many=True)
-    return success_response(data=serializer.data)
+    return success_response(data={'products': serializer.data})
 
 
 @extend_schema(
@@ -97,7 +100,7 @@ def product_detail(request, product_id):
         return not_found_response('Product not found. Please check the product ID and try again.')
     
     serializer = ProductSerializer(product)
-    return success_response(data=serializer.data)
+    return success_response(data={'product': serializer.data})
 
 
 @extend_schema(
@@ -112,7 +115,7 @@ def get_cart(request):
     """Get user's shopping cart"""
     cart, created = Cart.objects.get_or_create(user=request.user)
     serializer = CartSerializer(cart)
-    return success_response(data=serializer.data)
+    return success_response(data={'cart': serializer.data})
 
 
 @extend_schema(
@@ -129,11 +132,15 @@ def add_to_cart(request):
     serializer = CartItemSerializer(data=request.data, context={'cart': cart})
     
     if serializer.is_valid():
-        serializer.save(cart=cart)
-        
-        # Return updated cart
-        cart_serializer = CartSerializer(cart)
-        return success_response(data=cart_serializer.data, message='Item added to cart successfully')
+        try:
+            serializer.save()
+            # Return updated cart
+            cart.refresh_from_db()
+            cart_serializer = CartSerializer(cart)
+            return success_response(data={'cart': cart_serializer.data}, message='Item added to cart successfully')
+        except Exception as e:
+            logger.error(f"Error adding item to cart: {e}", exc_info=True)
+            return error_response('Failed to add item to cart. Please try again.', status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     return validation_error_response(serializer.errors, message='Validation error')
 

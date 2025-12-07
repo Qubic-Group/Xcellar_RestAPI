@@ -45,7 +45,7 @@ def create_order(request):
             notes='Order created and awaiting confirmation'
         )
         
-        return created_response(data=OrderDetailSerializer(order).data, message='Order created successfully')
+        return created_response(data={'order': OrderDetailSerializer(order).data}, message='Order created successfully')
     return validation_error_response(serializer.errors, message='Validation error')
 
 
@@ -139,7 +139,7 @@ def list_orders(request):
         queryset = queryset.filter(status=status_filter)
     
     serializer = OrderListSerializer(queryset, many=True)
-    return success_response(data=serializer.data)
+    return success_response(data={'orders': serializer.data})
 
 
 @extend_schema(
@@ -165,7 +165,7 @@ def order_detail(request, order_id):
         return error_response('You do not have permission to access this order.', status_code=status.HTTP_403_FORBIDDEN)
     
     serializer = OrderDetailSerializer(order)
-    return success_response(data=serializer.data)
+    return success_response(data={'order': serializer.data})
 
 
 @extend_schema(
@@ -192,7 +192,7 @@ def track_order(request, order_id):
     
     tracking = order.tracking_history.all()
     serializer = TrackingHistorySerializer(tracking, many=True)
-    return success_response(data=serializer.data)
+    return success_response(data={'tracking_history': serializer.data})
 
 
 @extend_schema(
@@ -221,7 +221,7 @@ def available_orders(request):
     ]
     
     serializer = OrderListSerializer(available_orders_list, many=True)
-    return success_response(data=serializer.data)
+    return success_response(data={'orders': serializer.data})
 
 
 @extend_schema(
@@ -265,7 +265,7 @@ def accept_order(request, order_id):
         )
     
     serializer = OrderDetailSerializer(order)
-    return success_response(data=serializer.data)
+    return success_response(data={'order': serializer.data})
 
 
 @extend_schema(
@@ -284,8 +284,10 @@ def reject_order(request, order_id):
         return not_found_response('Order not found. Please check the order ID and try again.')
     
     # Remove courier from offered list
-    if request.user.id in order.offered_to_couriers:
-        order.offered_to_couriers.remove(request.user.id)
+    offered_list = order.offered_to_couriers or []
+    if request.user.id in offered_list:
+        offered_list = [cid for cid in offered_list if cid != request.user.id]
+        order.offered_to_couriers = offered_list
         order.save()
     
     return success_response(message='Order rejected successfully')
@@ -345,5 +347,5 @@ def update_order_status(request, order_id):
     )
     
     serializer = OrderDetailSerializer(order)
-    return success_response(data=serializer.data)
+    return success_response(data={'order': serializer.data})
 

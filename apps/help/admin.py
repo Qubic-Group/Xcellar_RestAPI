@@ -12,14 +12,12 @@ class HelpRequestAdmin(admin.ModelAdmin):
         'category',
         'priority',
         'status',
-        'n8n_workflow_triggered',
         'created_at',
     ]
     list_filter = [
         'category',
         'priority',
         'status',
-        'n8n_workflow_triggered',
         'created_at',
     ]
     search_fields = [
@@ -32,8 +30,6 @@ class HelpRequestAdmin(admin.ModelAdmin):
     readonly_fields = [
         'created_at',
         'updated_at',
-        'n8n_workflow_triggered',
-        'n8n_workflow_id',
     ]
     ordering = ['-created_at']
     
@@ -54,13 +50,6 @@ class HelpRequestAdmin(admin.ModelAdmin):
                 'user_name',
                 'phone_number',
             )
-        }),
-        ('n8n Integration', {
-            'fields': (
-                'n8n_workflow_triggered',
-                'n8n_workflow_id',
-            ),
-            'classes': ('collapse',)
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),

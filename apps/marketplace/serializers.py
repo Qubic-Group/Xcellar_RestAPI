@@ -45,7 +45,11 @@ class CartItemSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         cart = self.context['cart']
         product_id = validated_data.pop('product_id')
-        product = Product.objects.get(id=product_id)
+        
+        try:
+            product = Product.objects.get(id=product_id, is_active=True, is_available=True)
+        except Product.DoesNotExist:
+            raise serializers.ValidationError({'product_id': 'Product not found or unavailable.'})
         
         # Check if item already exists in cart
         cart_item, created = CartItem.objects.get_or_create(

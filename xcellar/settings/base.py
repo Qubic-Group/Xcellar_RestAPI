@@ -42,7 +42,6 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.users',
     'apps.couriers',
-    'apps.automation',
     'apps.verification',
     'apps.faq',
     'apps.help',
@@ -197,11 +196,6 @@ CACHES = {
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 
-# n8n Integration Settings
-N8N_API_URL = os.environ.get('N8N_API_URL', 'http://n8n:5678')
-N8N_WEBHOOK_SECRET = os.environ.get('N8N_WEBHOOK_SECRET', '')
-N8N_API_KEY = os.environ.get('N8N_API_KEY', '')
-N8N_HELP_WEBHOOK_URL = os.environ.get('N8N_HELP_WEBHOOK_URL', '')  # Webhook URL for help requests
 
 # Celery Configuration
 CELERY_BROKER_URL = f"redis://{os.environ.get('REDIS_HOST', 'redis')}:{os.environ.get('REDIS_PORT', '6379')}/0"
@@ -271,14 +265,13 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': '''
     Xcellar API - Mobile Application Backend
     
-    A scalable Django REST Framework backend for mobile applications with n8n workflow automation integration.
+    A scalable Django REST Framework backend for mobile applications.
     
     ## Features
     - User authentication with JWT tokens
     - Multi-user type support (Regular Users and Couriers)
     - Role-based permissions
     - Rate limiting
-    - n8n workflow automation integration
     
     ## Authentication
     Use the "Authorize" button below to authenticate with a JWT token.
@@ -292,7 +285,6 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Authentication', 'description': 'User authentication and registration endpoints'},
         {'name': 'Users', 'description': 'Regular customer endpoints'},
         {'name': 'Couriers', 'description': 'Courier/driver endpoints'},
-        {'name': 'Automation', 'description': 'n8n workflow automation endpoints'},
         {'name': 'Verification', 'description': 'Phone number verification endpoints'},
         {'name': 'FAQ', 'description': 'Frequently asked questions endpoints'},
         {'name': 'Help', 'description': 'Help and support request endpoints'},

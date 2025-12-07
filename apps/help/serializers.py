@@ -135,7 +135,6 @@ class HelpRequestListSerializer(serializers.ModelSerializer):
             'priority_display',
             'status',
             'status_display',
-            'n8n_workflow_triggered',
             'created_at',
             'updated_at',
         ]
