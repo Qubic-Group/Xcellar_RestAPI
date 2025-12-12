@@ -1,39 +1,57 @@
 from rest_framework import serializers
 from apps.marketplace.models import Category, Store, Product, Cart, CartItem
+from apps.core.utils import build_file_url
 
 
 class CategorySerializer(serializers.ModelSerializer):
-    """Serializer for Category"""
+    icon_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Category
-        fields = ['id', 'name', 'slug', 'description', 'icon', 'is_featured']
+        fields = ['id', 'name', 'slug', 'description', 'icon', 'icon_url', 'is_featured']
+    
+    def get_icon_url(self, obj):
+        request = self.context.get('request')
+        return build_file_url(obj.icon, request)
 
 
 class StoreSerializer(serializers.ModelSerializer):
-    """Serializer for Store"""
+    logo_url = serializers.SerializerMethodField()
+    cover_image_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Store
-        fields = ['id', 'name', 'slug', 'description', 'owner_name', 'logo', 'cover_image',
-                  'address', 'phone_number', 'email', 'rating', 'total_sales', 'is_verified']
+        fields = ['id', 'name', 'slug', 'description', 'owner_name', 'logo', 'logo_url',
+                  'cover_image', 'cover_image_url', 'address', 'phone_number', 'email',
+                  'rating', 'total_sales', 'is_verified']
+    
+    def get_logo_url(self, obj):
+        request = self.context.get('request')
+        return build_file_url(obj.logo, request)
+    
+    def get_cover_image_url(self, obj):
+        request = self.context.get('request')
+        return build_file_url(obj.cover_image, request)
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    """Serializer for Product"""
     store_name = serializers.CharField(source='store.name', read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
+    primary_image_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Product
         fields = ['id', 'store_name', 'category_name', 'name', 'slug', 'description',
                   'short_description', 'price', 'compare_at_price', 'sku',
-                  'stock_quantity', 'images', 'weight_kg', 'dimensions',
-                  'is_available', 'is_featured', 'rating', 'total_sales']
+                  'stock_quantity', 'primary_image', 'primary_image_url', 'images',
+                  'weight_kg', 'dimensions', 'is_available', 'is_featured', 'rating', 'total_sales']
+    
+    def get_primary_image_url(self, obj):
+        request = self.context.get('request')
+        return build_file_url(obj.primary_image, request)
 
 
 class CartItemSerializer(serializers.ModelSerializer):
-    """Serializer for Cart Item"""
     product = ProductSerializer(read_only=True)
     product_id = serializers.IntegerField(write_only=True)
     subtotal = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)

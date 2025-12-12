@@ -33,9 +33,8 @@ from apps.core.permissions import IsUser
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def list_categories(request):
-    """List all product categories"""
     categories = Category.objects.filter(is_active=True).order_by('name')
-    serializer = CategorySerializer(categories, many=True)
+    serializer = CategorySerializer(categories, many=True, context={'request': request})
     return success_response(data={'categories': serializer.data})
 
 
@@ -48,9 +47,8 @@ def list_categories(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def list_stores(request):
-    """List all active stores"""
     stores = Store.objects.filter(is_active=True).order_by('name')
-    serializer = StoreSerializer(stores, many=True)
+    serializer = StoreSerializer(stores, many=True, context={'request': request})
     return success_response(data={'stores': serializer.data})
 
 
@@ -81,7 +79,7 @@ def list_products(request):
     if featured:
         queryset = queryset.filter(is_featured=True)
     
-    serializer = ProductSerializer(queryset, many=True)
+    serializer = ProductSerializer(queryset, many=True, context={'request': request})
     return success_response(data={'products': serializer.data})
 
 
@@ -100,7 +98,7 @@ def product_detail(request, product_id):
     except Product.DoesNotExist:
         return not_found_response('Product not found. Please check the product ID and try again.')
     
-    serializer = ProductSerializer(product)
+    serializer = ProductSerializer(product, context={'request': request})
     return success_response(data={'product': serializer.data})
 
 
@@ -113,9 +111,8 @@ def product_detail(request, product_id):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsUser])
 def get_cart(request):
-    """Get user's shopping cart"""
     cart, created = Cart.objects.get_or_create(user=request.user)
-    serializer = CartSerializer(cart)
+    serializer = CartSerializer(cart, context={'request': request})
     return success_response(data={'cart': serializer.data})
 
 
@@ -176,14 +173,13 @@ def get_cart(request):
 @permission_classes([IsAuthenticated, IsUser])
 def add_to_cart(request):
     cart, _ = Cart.objects.get_or_create(user=request.user)
-    serializer = CartItemSerializer(data=request.data, context={'cart': cart})
+    serializer = CartItemSerializer(data=request.data, context={'cart': cart, 'request': request})
     
     if serializer.is_valid():
         try:
             serializer.save()
-            # Return updated cart
             cart.refresh_from_db()
-            cart_serializer = CartSerializer(cart)
+            cart_serializer = CartSerializer(cart, context={'request': request})
             return success_response(data={'cart': cart_serializer.data}, message='Item added to cart successfully')
         except Exception as e:
             logger.error(f"Error adding item to cart: {e}", exc_info=True)

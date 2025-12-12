@@ -3,6 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
 from django.core.validators import RegexValidator
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from apps.core.utils import build_file_url
 import os
 
 User = get_user_model()
@@ -74,14 +75,14 @@ class UserSerializer(serializers.ModelSerializer):
         return None
     
     def get_profile_image_url(self, obj):
-        """Get full URL for profile image"""
         profile_image = self.get_profile_image(obj)
-        if profile_image:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(profile_image)
-            return profile_image
-        return None
+        if not profile_image:
+            return None
+        
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(profile_image)
+        return profile_image
     
     def get_isAddressSet(self, obj):
         """Check if user has set their address"""
