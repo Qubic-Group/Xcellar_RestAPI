@@ -29,6 +29,7 @@ python-dotenv==1.0.0
 
 # Development Tools
 django-extensions==3.2.3
+Pillow==10.1.0
 django-debug-toolbar==4.2.0
 ipython==8.17.2
 

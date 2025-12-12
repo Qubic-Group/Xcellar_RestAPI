@@ -10,11 +10,13 @@ from apps.orders.views import (
     reject_order,
     update_order_status,
 )
+from apps.orders.image_upload import upload_parcel_image
 
 app_name = 'orders'
 
 urlpatterns = [
     # User endpoints
+    path('upload-image/', upload_parcel_image, name='upload_parcel_image'),
     path('create/', create_order, name='create_order'),
     path('<int:order_id>/confirm/', confirm_order, name='confirm_order'),
     path('list/', list_orders, name='list_orders'),
