@@ -20,8 +20,16 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         ]
     
     def validate_parcel_images(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("parcel_images must be an array of image URLs")
+        
         if len(value) > 5:
-            raise serializers.ValidationError("Maximum 5 images allowed")
+            raise serializers.ValidationError(f"Maximum 5 images allowed. You provided {len(value)} images.")
+        
+        for url in value:
+            if not isinstance(url, str) or not url.startswith(('http://', 'https://')):
+                raise serializers.ValidationError("Each item in parcel_images must be a valid HTTP/HTTPS URL string")
+        
         return value
 
 
