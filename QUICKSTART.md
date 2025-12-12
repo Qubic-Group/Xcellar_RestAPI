@@ -21,16 +21,8 @@
 
 5. **Create superuser** (optional):
    ```bash
-   # Using the custom command (recommended)
-   docker-compose exec web python manage.py create_admin --email admin@xcellar.com --phone +2341234567890
-   
-   # Or using Django's built-in command
    docker-compose exec web python manage.py createsuperuser
    ```
-   
-   **Access Admin Panel:**
-   - URL: http://localhost:8000/admin/
-   - Login with your superuser email and password
 
 ## Access Points
 
