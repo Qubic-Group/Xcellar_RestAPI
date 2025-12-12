@@ -95,7 +95,6 @@ def get_balance(request):
 @permission_classes([IsAuthenticated])
 @ratelimit(key='user', rate='20/h', method='POST')
 def initialize_payment(request):
-    """Initialize a payment transaction"""
     amount = request.data.get('amount')
     callback_url = request.data.get('callback_url')
     
@@ -109,7 +108,6 @@ def initialize_payment(request):
     except (ValueError, TypeError):
         return error_response('Invalid payment amount. Amount must be greater than zero.', status_code=status.HTTP_400_BAD_REQUEST)
     
-    # Generate unique reference (ensure uniqueness)
     max_attempts = 10
     reference = None
     for attempt in range(max_attempts):
@@ -134,7 +132,6 @@ def initialize_payment(request):
         )
         
         if response.get('status'):
-            # Create pending transaction record
             Transaction.objects.create(
                 user=request.user,
                 transaction_type='DEPOSIT',
