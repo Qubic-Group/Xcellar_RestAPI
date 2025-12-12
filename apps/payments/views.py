@@ -54,7 +54,6 @@ logger = logging.getLogger(__name__)
 @permission_classes([IsAuthenticated])
 @ratelimit(key='user', rate='100/h', method='GET')
 def get_balance(request):
-    """Get user balance"""
     balance = get_user_balance(request.user)
     return success_response(
         data={'balance': str(balance), 'currency': 'NGN'},
@@ -194,7 +193,6 @@ def initialize_payment(request):
 @permission_classes([IsAuthenticated])
 @ratelimit(key='user', rate='100/h', method='GET')
 def verify_payment(request):
-    """Verify a payment transaction"""
     reference = request.query_params.get('reference')
     
     if not reference:
