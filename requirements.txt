@@ -24,6 +24,9 @@ django-redis==5.4.0
 celery[redis]==5.3.4
 django-celery-beat==2.5.0
 
+# Production WSGI Server
+gunicorn==21.2.0
+
 # Environment
 python-dotenv==1.0.0
 
