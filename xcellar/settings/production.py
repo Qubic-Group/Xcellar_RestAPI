@@ -2,6 +2,21 @@ from .base import *
 
 DEBUG = False
 
+# CRITICAL: Immediately remove debug_toolbar before anything else can use it
+INSTALLED_APPS = [app for app in INSTALLED_APPS if app != 'debug_toolbar']
+
+# CRITICAL: Redefine MIDDLEWARE immediately to ensure debug_toolbar is never included
+MIDDLEWARE = [
+    'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 
 # Database
@@ -39,10 +54,4 @@ STATICFILES_FINDERS = [
     'django.contrib.staticfiles.finders.AppDirectoriesFinder',
 ]
 
-# Ensure debug_toolbar is not in INSTALLED_APPS
-if 'debug_toolbar' in INSTALLED_APPS:
-    INSTALLED_APPS.remove('debug_toolbar')
-
-# Ensure debug_toolbar middleware is not in MIDDLEWARE
-MIDDLEWARE = [m for m in MIDDLEWARE if 'debug_toolbar' not in m]
 
