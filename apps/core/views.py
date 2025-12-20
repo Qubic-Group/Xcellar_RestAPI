@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 )
 @api_view(['GET'])
 @permission_classes([AllowAny])  # Public endpoint - banks list is public info
-@ratelimit(key='ip', rate='100/h', method='GET')
+# Rate limit removed to prevent 403 errors behind load balancer
 def list_banks(request):
     """
     Get list of Nigerian banks.
@@ -185,7 +185,7 @@ def list_banks(request):
 )
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-@ratelimit(key='user', rate='10/m', method='GET')  # Limit to 10 requests per minute
+# Rate limit removed to prevent 403 errors
 def verify_account(request):
     """
     Verify bank account details.

@@ -95,7 +95,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             ),
         ],
     )
-    @method_decorator(ratelimit(key='ip', rate='20/m', method='POST'))
+    # Rate limit removed to prevent 403 errors behind load balancer
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         
@@ -231,7 +231,7 @@ class CustomTokenRefreshView(TokenRefreshView):
 )
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='100/h', method='POST')
+# Rate limit removed to prevent 403 errors behind load balancer
 def register_user(request):
     """
     Register a new regular customer.
@@ -309,7 +309,7 @@ def register_user(request):
 )
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='10/h', method='POST')
+# Rate limit removed to prevent 403 errors behind load balancer
 def register_courier(request):
     """
     Register a new courier.
