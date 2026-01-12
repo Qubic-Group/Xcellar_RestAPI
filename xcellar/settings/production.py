@@ -44,6 +44,11 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 # Disable rate limiting (depends on Redis cache)
 RATELIMIT_ENABLE = False
 
+# Celery - Disable Redis broker/backend (Redis not available)
+CELERY_BROKER_URL = None
+CELERY_RESULT_BACKEND = None
+CELERY_TASK_ALWAYS_EAGER = True  # Run tasks synchronously
+
 # Static files
 STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage'
 
