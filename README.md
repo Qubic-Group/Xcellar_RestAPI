@@ -1,6 +1,6 @@
 # Xcellar - Django REST Framework Backend
 
-A scalable Django REST Framework backend for mobile applications with n8n workflow automation integration.
+A scalable Django REST Framework backend for mobile applications for Xcellar.
 
 ## Features
 

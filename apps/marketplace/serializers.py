@@ -54,13 +54,42 @@ class ProductSerializer(serializers.ModelSerializer):
     """Serializer for Product"""
     store_name = serializers.CharField(source='store.name', read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
+    images = serializers.SerializerMethodField()
+    primary_image_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Product
         fields = ['id', 'store_name', 'category_name', 'name', 'slug', 'description',
                   'short_description', 'price', 'compare_at_price', 'sku',
                   'stock_quantity', 'weight_kg', 'dimensions',
-                  'is_available', 'is_featured', 'rating', 'total_sales', 'images']
+                  'is_available', 'is_featured', 'rating', 'total_sales', 
+                  'images', 'primary_image_url']
+    
+    def get_images(self, obj):
+        """Get full URLs for all product images"""
+        request = self.context.get('request')
+        images = obj.images or []
+        
+        if not images:
+            return []
+        
+        absolute_urls = []
+        for image_path in images:
+            if image_path:
+                if request:
+                    # If it's already a full URL, return as is
+                    if image_path.startswith('http'):
+                        absolute_urls.append(image_path)
+                    else:
+                        absolute_urls.append(request.build_absolute_uri(image_path))
+                else:
+                    absolute_urls.append(image_path)
+        return absolute_urls
+    
+    def get_primary_image_url(self, obj):
+        """Get full URL for primary image (first image in array)"""
+        images = self.get_images(obj)
+        return images[0] if images else None
 
 
 class CartItemSerializer(serializers.ModelSerializer):
