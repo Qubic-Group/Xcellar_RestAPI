@@ -14,6 +14,7 @@ class UserSerializer(serializers.ModelSerializer):
     address = serializers.SerializerMethodField()
     profile_image = serializers.SerializerMethodField()
     profile_image_url = serializers.SerializerMethodField()
+    balance = serializers.SerializerMethodField()
     
     # Status fields for USER type
     isAddressSet = serializers.SerializerMethodField()
@@ -29,7 +30,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'email', 'phone_number', 'user_type', 'date_joined', 
-            'full_name', 'address', 'profile_image', 'profile_image_url',
+            'full_name', 'address', 'profile_image', 'profile_image_url', 'balance',
             'isAddressSet', 'isDeliveryOptionSet', 'isPaymentInfoSet', 
             'isBvnSet', 'isApproved', 'isDriverLicenseSet'
         ]
@@ -82,6 +83,14 @@ class UserSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(profile_image)
             return profile_image
         return None
+    
+    def get_balance(self, obj):
+        """Get balance from profile"""
+        if obj.user_type == 'USER' and hasattr(obj, 'user_profile'):
+            return str(obj.user_profile.balance)
+        elif obj.user_type == 'COURIER' and hasattr(obj, 'courier_profile'):
+            return str(obj.courier_profile.balance)
+        return "0.00"
     
     def get_isAddressSet(self, obj):
         """Check if user has set their address"""
