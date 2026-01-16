@@ -67,3 +67,11 @@ if settings.DEBUG:
         ]
     except ImportError:
         pass
+else:
+    # Serve media files in production
+    # Note: For high-traffic production, consider using cloud storage (S3/Cloudinary)
+    from django.views.static import serve
+    from django.urls import re_path
+    urlpatterns += [
+        re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
+    ]

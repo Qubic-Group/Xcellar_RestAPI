@@ -52,3 +52,13 @@ CELERY_TASK_ALWAYS_EAGER = True  # Run tasks synchronously
 # Static files
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
+# Media files - Serve using WhiteNoise in production
+# Note: Railway's filesystem is ephemeral. Files will be lost on container restart.
+# For persistent media storage, consider using AWS S3 or Cloudinary.
+WHITENOISE_USE_FINDERS = True
+
+# Ensure media directory exists
+import os as os_module
+MEDIA_ROOT_PATH = os_module.path.join(BASE_DIR, 'media')
+if not os_module.path.exists(MEDIA_ROOT_PATH):
+    os_module.makedirs(MEDIA_ROOT_PATH, exist_ok=True)
