@@ -82,15 +82,21 @@ def send_otp(request):
         is_verified=False
     ).update(is_active=False)
     
-    # Send OTP via Twilio Verify API (Twilio generates the code)
-    success, message, verification_sid = twilio_service.send_otp(phone_number, method)
+    # TESTING MODE: Bypass Twilio send for testing purposes
+    # TODO: Remove this bypass in production
+    success = True
+    message = 'OTP sent successfully (Bypassed)'
+    verification_sid = 'mock_sid_for_testing'
     
-    if not success:
-        # Check if it's a client error (invalid phone number, etc.) or server error
-        if 'Invalid parameter' in message or 'invalid' in message.lower():
-            return error_response(message, status_code=status.HTTP_400_BAD_REQUEST)
-        else:
-            return error_response(message, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    # Original Twilio send (commented out for testing):
+    # success, message, verification_sid = twilio_service.send_otp(phone_number, method)
+    #
+    # if not success:
+    #     # Check if it's a client error (invalid phone number, etc.) or server error
+    #     if 'Invalid parameter' in message or 'invalid' in message.lower():
+    #         return error_response(message, status_code=status.HTTP_400_BAD_REQUEST)
+    #     else:
+    #         return error_response(message, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     # Create verification record for tracking (Twilio handles the actual code)
     PhoneVerification.objects.create(
