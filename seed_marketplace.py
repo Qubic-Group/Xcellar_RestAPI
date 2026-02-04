@@ -116,5 +116,4 @@ def seed_marketplace():
     
     print(f"Seeding complete. Total Products: {Product.objects.count()}")
 
-if __name__ == "__main__":
-    seed_marketplace()
+seed_marketplace()
