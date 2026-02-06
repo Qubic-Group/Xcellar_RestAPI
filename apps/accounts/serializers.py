@@ -144,93 +144,85 @@ class UserSerializer(serializers.ModelSerializer):
         return None
 
 
-class UserRegistrationSerializer(serializers.Serializer):
-    """Serializer for user registration"""
+def normalize_phone_number(value):
+    """Normalize phone number to international format."""
+    if not value.startswith('+'):
+        value = '+' + value.lstrip('+')
+    return value.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+
+
+def validate_unique_email(value):
+    """Check if email is already registered."""
+    if User.objects.filter(email__iexact=value).exists():
+        raise serializers.ValidationError(
+            "This email address is already registered. Please use a different email or sign in."
+        )
+    return value.lower()
+
+
+def validate_unique_phone(value):
+    """Check if phone number is already registered."""
+    normalized = normalize_phone_number(value)
+    if User.objects.filter(phone_number=normalized).exists():
+        raise serializers.ValidationError(
+            "This phone number is already registered. Please use a different phone number or sign in."
+        )
+    return normalized
+
+
+class BaseRegistrationSerializer(serializers.Serializer):
+    """Base serializer with shared registration validation logic."""
     email = serializers.EmailField(required=True)
     phone_number = serializers.CharField(required=True, max_length=20)
-    password = serializers.CharField(required=True, write_only=True, min_length=8, validators=[validate_password])
+    password = serializers.CharField(
+        required=True, write_only=True, min_length=8, validators=[validate_password]
+    )
     password_confirm = serializers.CharField(required=True, write_only=True, min_length=8)
     full_name = serializers.CharField(required=True, max_length=200)
-    
+
     def validate_email(self, value):
-        """Check if email is already registered"""
-        if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("This email address is already registered. Please use a different email or sign in.")
-        return value.lower()
-    
+        return validate_unique_email(value)
+
     def validate_phone_number(self, value):
-        """Normalize and check if phone number is already registered"""
-        # Normalize phone number
-        if not value.startswith('+'):
-            value = '+' + value.lstrip('+')
-        value = value.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
-        
-        if User.objects.filter(phone_number=value).exists():
-            raise serializers.ValidationError("This phone number is already registered. Please use a different phone number or sign in.")
-        return value
-    
+        return validate_unique_phone(value)
+
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError("Passwords do not match. Please ensure both password fields are identical.")
+            raise serializers.ValidationError({
+                'password_confirm': "Passwords do not match."
+            })
         return attrs
-    
+
+
+class UserRegistrationSerializer(BaseRegistrationSerializer):
+    """Serializer for user registration."""
+
     def create(self, validated_data):
+        from apps.accounts.models import UserProfile
+        
         user = User.objects.create_user(
             email=validated_data['email'],
             phone_number=validated_data['phone_number'],
             password=validated_data['password'],
             user_type='USER'
         )
-        from apps.accounts.models import UserProfile
-        UserProfile.objects.create(
-            user=user,
-            full_name=validated_data['full_name']
-        )
+        UserProfile.objects.create(user=user, full_name=validated_data['full_name'])
         return user
 
 
-class CourierRegistrationSerializer(serializers.Serializer):
-    """Serializer for courier registration"""
-    email = serializers.EmailField(required=True)
-    phone_number = serializers.CharField(required=True, max_length=20)
-    password = serializers.CharField(required=True, write_only=True, min_length=8, validators=[validate_password])
-    password_confirm = serializers.CharField(required=True, write_only=True, min_length=8)
-    full_name = serializers.CharField(required=True, max_length=200)
-    
-    def validate_email(self, value):
-        """Check if email is already registered"""
-        if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("This email address is already registered. Please use a different email or sign in.")
-        return value.lower()
-    
-    def validate_phone_number(self, value):
-        """Normalize and check if phone number is already registered"""
-        # Normalize phone number
-        if not value.startswith('+'):
-            value = '+' + value.lstrip('+')
-        value = value.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
-        
-        if User.objects.filter(phone_number=value).exists():
-            raise serializers.ValidationError("This phone number is already registered. Please use a different phone number or sign in.")
-        return value
-    
-    def validate(self, attrs):
-        if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError("Passwords do not match. Please ensure both password fields are identical.")
-        return attrs
-    
+class CourierRegistrationSerializer(BaseRegistrationSerializer):
+    """Serializer for courier registration."""
+
     def create(self, validated_data):
+        from apps.accounts.models import CourierProfile
+        
         user = User.objects.create_user(
             email=validated_data['email'],
             phone_number=validated_data['phone_number'],
             password=validated_data['password'],
             user_type='COURIER'
         )
-        from apps.accounts.models import CourierProfile
-        CourierProfile.objects.create(
-            user=user,
-            full_name=validated_data['full_name']
-        )
+        CourierProfile.objects.create(user=user, full_name=validated_data['full_name'])
         return user
 
 
@@ -288,16 +280,7 @@ class PhoneNumberUpdateSerializer(serializers.Serializer):
     )
     
     def validate_phone_number(self, value):
-        """Normalize phone number format"""
-        # Ensure phone number starts with +
-        if not value.startswith('+'):
-            # If it doesn't start with +, assume it's a local number and prepend +
-            value = '+' + value.lstrip('+')
-        
-        # Remove any spaces, dashes, or parentheses
-        value = value.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
-        
-        return value
+        return normalize_phone_number(value)
     
     def validate(self, attrs):
         """Check if phone number is already in use"""
