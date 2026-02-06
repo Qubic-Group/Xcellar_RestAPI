@@ -1,10 +1,22 @@
+#!/usr/bin/env python
+"""
+Script to seed marketplace data to the database.
+Run with: python seed_marketplace.py
+"""
 import os
+import sys
 import random
 import uuid
 from decimal import Decimal
-from django.utils.text import slugify
 
-# Standalone setup not needed when running via manage.py shell
+# Django setup - must be done before importing Django models
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'xcellar.settings.production')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import django
+django.setup()
+
+from django.utils.text import slugify
 from apps.marketplace.models import Category, Store, Product
 
 CATEGORIES = [
