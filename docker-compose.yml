@@ -51,6 +51,7 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
+      - DB_SSLMODE=disable
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DOCKER_CONTAINER=true
@@ -75,6 +76,7 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
+      - DB_SSLMODE=disable
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DOCKER_CONTAINER=true
@@ -99,6 +101,7 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
+      - DB_SSLMODE=disable
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DOCKER_CONTAINER=true
