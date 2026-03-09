@@ -68,5 +68,18 @@ class TrackingHistorySerializer(serializers.ModelSerializer):
     
     class Meta:
         model = TrackingHistory
-        fields = ['status', 'location', 'latitude', 'longitude', 'notes', 'created_at']
+        fields = ['id', 'status', 'location', 'latitude', 'longitude', 'notes', 'created_at']
+
+
+class PublicOrderTrackingSerializer(serializers.ModelSerializer):
+    """Public serializer for order tracking - exposes only safe data"""
+    tracking_history = TrackingHistorySerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = Order
+        fields = [
+            'order_number', 'tracking_number', 'status',
+            'current_location', 'estimated_delivery_time',
+            'tracking_history'
+        ]
 
