@@ -1,12 +1,13 @@
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from apps.core.response import success_response, error_response, created_response, validation_error_response, not_found_response
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from django.utils import timezone
 from django.db import transaction as db_transaction
 from django.db.models import Q
+from django_ratelimit.decorators import ratelimit
 import random
 import logging
 
@@ -15,7 +16,8 @@ from apps.orders.serializers import (
     OrderCreateSerializer,
     OrderListSerializer,
     OrderDetailSerializer,
-    TrackingHistorySerializer
+    TrackingHistorySerializer,
+    PublicOrderTrackingSerializer
 )
 from apps.core.permissions import IsUser, IsCourier
 from apps.accounts.models import User
@@ -42,7 +44,7 @@ def create_order(request):
         TrackingHistory.objects.create(
             order=order,
             status='PENDING',
-            notes='Order created and awaiting confirmation'
+            notes='Order placed successfully'
         )
         
         return created_response(data={'order': OrderDetailSerializer(order).data}, message='Order created successfully')
@@ -78,7 +80,7 @@ def confirm_order(request, order_id):
     TrackingHistory.objects.create(
         order=order,
         status='AVAILABLE',
-        notes='Order confirmed and made available to couriers'
+        notes='Order confirmed and sent to couriers'
     )
     
     # Assign to couriers (simple random selection)
@@ -88,30 +90,39 @@ def confirm_order(request, order_id):
 
 def assign_order_to_couriers(order):
     """
-    Assign order to random couriers for pickup.
-    Simple random selection algorithm.
+    Assign order to available couriers for pickup.
+    Selects up to 5 random active couriers.
     """
     # Get available couriers
     available_couriers = User.objects.filter(
         user_type='COURIER',
         is_active=True
-    ).exclude(id__in=order.offered_to_couriers)
+    ).exclude(id__in=order.offered_to_couriers or [])
     
-    # Select random 5 couriers (or all if less than 5)
+    if not available_couriers.exists():
+        # Create tracking entry noting no couriers available
+        TrackingHistory.objects.create(
+            order=order,
+            status='AVAILABLE',
+            notes='Order available but no couriers currently available'
+        )
+        return
+    
+    # Select up to 5 random couriers
     num_to_select = min(5, available_couriers.count())
-    if num_to_select > 0:
-        selected_couriers = random.sample(list(available_couriers), num_to_select)
-        order.offered_to_couriers = [c.id for c in selected_couriers]
-        order.offer_expires_at = timezone.now() + timezone.timedelta(hours=24)
-        order.save()
-        
-        # Create tracking entries for each courier offer
-        for courier in selected_couriers:
-            TrackingHistory.objects.create(
-                order=order,
-                status='AVAILABLE',
-                notes=f'Order offered to courier: {courier.email}'
-            )
+    selected_couriers = random.sample(list(available_couriers), num_to_select)
+    
+    order.offered_to_couriers = [c.id for c in selected_couriers]
+    order.offer_expires_at = timezone.now() + timezone.timedelta(hours=24)
+    order.save()
+    
+    # Create single tracking entry for courier assignment
+    courier_emails = [c.email for c in selected_couriers]
+    TrackingHistory.objects.create(
+        order=order,
+        status='AVAILABLE',
+        notes=f'Order sent to {len(selected_couriers)} courier(s) for pickup'
+    )
 
 
 @extend_schema(
@@ -196,6 +207,26 @@ def track_order(request, order_id):
 
 
 @extend_schema(
+    tags=['Orders'],
+    summary='Public Order Tracking',
+    description='Track order status by tracking code (public endpoint)',
+    responses={200: PublicOrderTrackingSerializer}
+)
+@api_view(['GET'])
+@permission_classes([AllowAny])
+@ratelimit(key='ip', rate='100/h', method='GET')  # Allow 100 requests per hour per IP
+def public_track_order(request, tracking_code):
+    """Public endpoint to track order by tracking code"""
+    try:
+        order = Order.objects.get(tracking_number=tracking_code.upper())
+    except Order.DoesNotExist:
+        return not_found_response('Order not found. Please check your tracking code.')
+    
+    serializer = PublicOrderTrackingSerializer(order)
+    return success_response(data={'order': serializer.data})
+
+
+@extend_schema(
     tags=['Couriers'],
     summary='List Available Orders',
     description='List orders available for courier pickup',
@@ -261,7 +292,7 @@ def accept_order(request, order_id):
         TrackingHistory.objects.create(
             order=order,
             status='ACCEPTED',
-            notes=f'Order accepted by courier: {request.user.email}'
+            notes='Courier assigned and en route to pickup location'
         )
     
     serializer = OrderDetailSerializer(order)
@@ -339,11 +370,22 @@ def update_order_status(request, order_id):
     
     # Create tracking entry
     location = request.data.get('location', '')
+    notes = request.data.get('notes', '')
+    
+    # Provide default notes if none given
+    if not notes:
+        default_notes = {
+            'PICKED_UP': 'Package picked up from sender',
+            'IN_TRANSIT': 'Package in transit to delivery location',
+            'DELIVERED': 'Package delivered successfully'
+        }
+        notes = default_notes.get(new_status, f'Status updated to {new_status}')
+    
     TrackingHistory.objects.create(
         order=order,
         status=new_status,
         location=location,
-        notes=request.data.get('notes', '')
+        notes=notes
     )
     
     serializer = OrderDetailSerializer(order)

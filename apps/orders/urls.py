@@ -5,6 +5,7 @@ from apps.orders.views import (
     list_orders,
     order_detail,
     track_order,
+    public_track_order,
     available_orders,
     accept_order,
     reject_order,
@@ -22,6 +23,7 @@ urlpatterns = [
     path('list/', list_orders, name='list_orders'),
     path('<int:order_id>/', order_detail, name='order_detail'),
     path('<int:order_id>/track/', track_order, name='track_order'),
+    path('track/<str:tracking_code>/', public_track_order, name='public_track_order'),
     
     # Courier endpoints
     path('available/', available_orders, name='available_orders'),
